@@ -26,4 +26,4 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for contributor commands.
 
 * [Cluster lifecycle](cluster_lifecycle/README.md): discover, inspect, start and
   stop a Workbench cluster using Python, OCI authentication and `.env` settings.
-  Live OCI verification is pending.
+
