@@ -5,7 +5,7 @@ stop it. Python uses the OCI SDK for authentication and instance discovery, and
 signed REST requests for Workbench operations. No separate AIDP SDK or OCI CLI
 installation is required.
 
-Live OCI AI DP verification remains pending. See the [specification](specs/001-cluster-lifecycle.md).
+See the [specification](specs/001-cluster-lifecycle.md).
 
 ## Configure once in `.env`
 
