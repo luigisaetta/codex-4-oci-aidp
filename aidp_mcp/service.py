@@ -11,6 +11,7 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import time
+from urllib.parse import quote
 
 import oci
 from aidp_python_client.aidataplatform_dp import (
@@ -33,6 +34,7 @@ from aidp_common.settings import connection_parser, validate_connection
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TERMINAL_JOB_STATES = {"SUCCESS", "FAILED", "ERROR", "CANCELED", "TIMED_OUT"}
+MAX_JOB_RUN_OUTPUT_CHARACTERS = 12000
 
 
 @dataclass(frozen=True)
@@ -92,27 +94,162 @@ def validate_local_notebook(local_path):
 
 
 def validate_workspace_path(workspace_path):
-    """Validate a workspace notebook path without allowing traversal.
+    """Validate an SDK workspace-relative notebook path without traversal.
 
     Args:
-        workspace_path: Absolute POSIX path in the AI DP workspace.
+        workspace_path: POSIX path relative to the AI DP workspace root.
 
     Returns:
         str: Normalized workspace path.
 
     Raises:
-        AidpError: The path is not an absolute notebook path below /Workspace.
+        AidpError: The path is not a relative notebook path.
     """
     path = PurePosixPath(workspace_path)
     if (
-        not workspace_path.startswith("/")
+        path.is_absolute()
         or path.suffix != ".ipynb"
         or ".." in path.parts
-        or len(path.parts) < 3
-        or path.parts[1] != "Workspace"
+        or path == PurePosixPath(".")
     ):
-        raise AidpError("Workspace path must be a .ipynb path below /Workspace.")
+        raise AidpError("Workspace path must be a relative .ipynb path.")
     return str(path)
+
+
+def workspace_content_path(workspace_path):
+    """Return the notebook service's absolute path for a relative input.
+
+    Args:
+        workspace_path: Valid path relative to the workspace root.
+
+    Returns:
+        str: Absolute notebook service path beneath `/Workspace`.
+    """
+    return f"/Workspace/{workspace_path}"
+
+
+def encoded_content_path(content_path):
+    """Encode an absolute notebook path for the SDK URL path parameter.
+
+    Args:
+        content_path: Absolute path returned or accepted by the notebook service.
+
+    Returns:
+        str: URL-path-safe encoded content path.
+    """
+    return quote(content_path, safe="")
+
+
+def notebook_content_request(
+    notebooks, *, instance_id, workspace_key, method, content_path, body=None
+):
+    """Call the documented notebook-content endpoint without double encoding.
+
+    The generated Python client turns `%2F` into `%252F` when an encoded path
+    is supplied as a path parameter. The notebook service requires encoded
+    slashes inside its final URL segment.
+
+    Args:
+        notebooks: Generated notebook client with the configured signer.
+        instance_id: Selected AI DP instance OCID.
+        workspace_key: Selected workspace key.
+        method: HTTP method accepted by the notebook contents endpoint.
+        content_path: Absolute notebook service path below `/Workspace`.
+        body: Optional generated SDK request model.
+
+    Returns:
+        oci.response.Response: Notebook content service response.
+    """
+    return notebooks.base_client.call_api(
+        resource_path=(
+            "/aiDataPlatforms/{aiDataPlatformId}/workspaces/{workspaceKey}"
+            f"/notebook/api/contents/{encoded_content_path(content_path)}"
+        ),
+        method=method,
+        path_params={
+            "aiDataPlatformId": instance_id,
+            "workspaceKey": workspace_key,
+        },
+        header_params={
+            "accept": "application/json",
+            "content-type": "application/json",
+        },
+        body=body,
+        response_type="Content",
+    )
+
+
+def is_missing_content_error(error):
+    """Identify an absent-notebook response from the AI DP content service.
+
+    Args:
+        error: OCI service error from a notebook-content GET request.
+
+    Returns:
+        bool: Whether the response is the observed absent-content form.
+    """
+    return error.status == 404 or (
+        error.status == 500
+        and getattr(error, "code", None) == "InternalError"
+        and "getting notebook content" in str(getattr(error, "message", "")).lower()
+    )
+
+
+def is_existing_folder_error(error):
+    """Identify AI DP's conflict response for a pre-existing workspace folder.
+
+    Args:
+        error: OCI service error from the workspace objects API.
+
+    Returns:
+        bool: Whether the service reports that the requested directory exists.
+    """
+    return (
+        error.status == 409
+        and getattr(error, "code", None) == "Conflict"
+        and "directory already exists" in str(getattr(error, "message", "")).lower()
+    )
+
+
+def create_workspace_folder(notebooks, instance_id, workspace_key, folder_path):
+    """Create or retain one workspace folder through the documented objects API.
+
+    Args:
+        notebooks: Generated notebook client with the configured endpoint and
+            signer.
+        instance_id: Selected AI DP instance OCID.
+        workspace_key: Selected workspace key.
+        folder_path: Absolute folder path below `/Workspace`.
+
+    Raises:
+        AidpError: The service does not accept the folder creation request.
+    """
+    try:
+        response = notebooks.base_client.call_api(
+            resource_path=(
+                "/aiDataPlatforms/{aiDataPlatformId}/workspaces/{workspaceKey}/objects"
+            ),
+            method="POST",
+            path_params={
+                "aiDataPlatformId": instance_id,
+                "workspaceKey": workspace_key,
+            },
+            header_params={
+                "accept": "*/*",
+                "content-type": "application/octet-stream",
+                "path": folder_path,
+                "type": "FOLDER",
+                "is-overwrite": "true",
+            },
+            body=b"",
+            response_type=None,
+        )
+    except oci.exceptions.ServiceError as exc:
+        if is_existing_folder_error(exc):
+            return
+        raise
+    if response.status not in (200, 201):
+        raise AidpError(f"Workspace folder creation returned HTTP {response.status}.")
 
 
 def _resource_key(resource, label):
@@ -183,6 +320,37 @@ def find_cluster(clusters, instance_id, workspace_key, cluster_name):
     return Target(instance_id, workspace_key, key, cluster_name)
 
 
+def find_cluster_status(clusters, instance_id, workspace_key, cluster_name):
+    """Resolve one exact cluster and return its current detailed SDK model.
+
+    Args:
+        clusters: Generated ClusterClient.
+        instance_id: Selected AI DP instance OCID.
+        workspace_key: Selected workspace key.
+        cluster_name: Exact cluster display name.
+
+    Returns:
+        object: The detailed cluster model returned by AI DP.
+
+    Raises:
+        AidpError: The cluster is absent, ambiguous, or lacks a resource key.
+    """
+    matches = [
+        item
+        for item in oci.pagination.list_call_get_all_results(
+            clusters.list_clusters,
+            instance_id,
+            workspace_key,
+            display_name=cluster_name,
+        ).data
+        if getattr(item, "display_name", None) == cluster_name
+    ]
+    if len(matches) != 1:
+        raise AidpError(f"Expected exactly one cluster named {cluster_name!r}.")
+    key = _resource_key(matches[0], "Cluster")
+    return clusters.get_cluster(instance_id, workspace_key, key).data
+
+
 def _find_job(workflows, instance_id, workspace_key, job_name):
     matches = [
         item
@@ -208,6 +376,7 @@ def _managed_task(notebook_path, cluster_key):
         source=models.NotebookTask.SOURCE_WORKSPACE,
         cluster=cluster,
         depends_on=[],
+        run_if="ALL_SUCCESS",
         parameters=[],
         max_retries=0,
         is_retry_on_timeout=False,
@@ -250,12 +419,37 @@ class AidpWorkflowService:
         control = managed_client(
             resources, oci.ai_data_platform.AiDataPlatformClient, config, options
         )
+        # AI DP can return numeric timestamps in response models. These tools do
+        # not interpret timestamps, so preserve their service representation and
+        # prevent OCI SDK datetime deserialization from rejecting discovery.
         workspaces = managed_client(
-            resources, WorkspaceClient, config, workbench_options
+            resources,
+            WorkspaceClient,
+            config,
+            workbench_options,
+            preserve_timestamps=True,
         )
-        clusters = managed_client(resources, ClusterClient, config, workbench_options)
-        notebooks = managed_client(resources, NotebookClient, config, workbench_options)
-        workflows = managed_client(resources, WorkflowClient, config, workbench_options)
+        clusters = managed_client(
+            resources,
+            ClusterClient,
+            config,
+            workbench_options,
+            preserve_timestamps=True,
+        )
+        notebooks = managed_client(
+            resources,
+            NotebookClient,
+            config,
+            workbench_options,
+            preserve_timestamps=True,
+        )
+        workflows = managed_client(
+            resources,
+            WorkflowClient,
+            config,
+            workbench_options,
+            preserve_timestamps=True,
+        )
         compartment = resolve_compartment(
             identity, config["tenancy"], self.settings.compartment
         )
@@ -277,7 +471,7 @@ class AidpWorkflowService:
 
         Args:
             local_path: Local notebook path under the repository root.
-            workspace_path: Destination notebook path under /Workspace.
+            workspace_path: Destination notebook path relative to the workspace root.
             overwrite: Allow replacement of existing remote content.
             apply: Submit the update after the plan is reported.
 
@@ -289,11 +483,16 @@ class AidpWorkflowService:
         """
         local_file, content, digest = validate_local_notebook(local_path)
         destination = validate_workspace_path(workspace_path)
+        service_path = workspace_content_path(destination)
         with self._clients() as clients:
             instance_id, workspace_key, _, notebooks, _ = clients
             try:
-                remote = notebooks.get_content(
-                    instance_id, workspace_key, destination
+                remote = notebook_content_request(
+                    notebooks,
+                    instance_id=instance_id,
+                    workspace_key=workspace_key,
+                    method="GET",
+                    content_path=service_path,
                 ).data
                 remote_digest = getattr(remote, "hash", None)
                 same = (
@@ -303,7 +502,7 @@ class AidpWorkflowService:
                 )
                 action = "unchanged" if same else "update"
             except oci.exceptions.ServiceError as exc:
-                if exc.status != 404:
+                if not is_missing_content_error(exc):
                     raise
                 action = "create"
             result = {
@@ -319,18 +518,45 @@ class AidpWorkflowService:
                 raise AidpError(
                     "Remote notebook exists; set overwrite=true to replace it."
                 )
-            notebooks.update_content(
-                instance_id,
-                workspace_key,
-                destination,
-                models.UpdateContentDetails(
+            if action == "create":
+                create_workspace_folder(
+                    notebooks,
+                    instance_id,
+                    workspace_key,
+                    str(PurePosixPath(service_path).parent),
+                )
+                created = notebook_content_request(
+                    notebooks,
+                    instance_id=instance_id,
+                    workspace_key=workspace_key,
+                    method="POST",
+                    content_path=str(PurePosixPath(service_path).parent),
+                    body=models.CreateContentDetails(ext=".ipynb", type="notebook"),
+                ).data
+                created_path = getattr(created, "path", None)
+                if not isinstance(created_path, str) or not created_path:
+                    raise AidpError("Notebook creation response is missing its path.")
+                notebook_content_request(
+                    notebooks,
+                    instance_id=instance_id,
+                    workspace_key=workspace_key,
+                    method="PATCH",
+                    content_path=created_path,
+                    body=models.ModifyContentDetails(path=service_path),
+                )
+            notebook_content_request(
+                notebooks,
+                instance_id=instance_id,
+                workspace_key=workspace_key,
+                method="PUT",
+                content_path=service_path,
+                body=models.UpdateContentDetails(
                     name=PurePosixPath(destination).name,
-                    path=destination,
+                    path=service_path,
                     type=models.UpdateContentDetails.TYPE_NOTEBOOK,
                     content=content,
                     format=models.UpdateContentDetails.FORMAT_JSON,
                 ),
-                retry_strategy=oci.retry.NoneRetryStrategy(),
             )
             return result
 
@@ -362,6 +588,11 @@ class AidpWorkflowService:
         """
         if not isinstance(job_name, str) or not job_name.strip():
             raise AidpError("Job name must be nonempty.")
+        if not job_name.replace("_", "").isalnum() or not job_name[0].isalpha():
+            raise AidpError(
+                "Job name must start with a letter and contain only letters, "
+                "numbers, or underscores."
+            )
         if not isinstance(max_concurrent_runs, int) or max_concurrent_runs < 1:
             raise AidpError("max_concurrent_runs must be a positive integer.")
         notebook_path = validate_workspace_path(workspace_notebook_path)
@@ -505,6 +736,77 @@ class AidpWorkflowService:
             response = workflows.get_job_run(instance_id, workspace_key, job_run_key)
             return _run_response(response.data, job_run_key)
 
+    def get_cluster_status(self, cluster_name):
+        """Read a sanitized summary for one exact configured-workspace cluster.
+
+        Args:
+            cluster_name: Exact cluster display name in the configured workspace.
+
+        Returns:
+            dict: Cluster state and selected non-sensitive configuration fields.
+
+        Raises:
+            AidpError: The cluster is absent, ambiguous, or has an invalid name.
+        """
+        if not isinstance(cluster_name, str) or not cluster_name.strip():
+            raise AidpError("Cluster name must be a nonempty string.")
+        with self._clients() as clients:
+            instance_id, workspace_key, clusters, _, _ = clients
+            cluster = find_cluster_status(
+                clusters, instance_id, workspace_key, cluster_name
+            )
+            return _cluster_response(cluster)
+
+    def get_job_run_output(
+        self, job_run_key, max_characters=MAX_JOB_RUN_OUTPUT_CHARACTERS
+    ):
+        """Fetch bounded plain-text output for a managed single-task job run.
+
+        Args:
+            job_run_key: Existing AI DP job-run key.
+            max_characters: Combined output and error-trace character limit.
+
+        Returns:
+            dict: Sanitized task output metadata and bounded plain text.
+
+        Raises:
+            AidpError: The run is not a single-task run or has no output yet.
+        """
+        validate_resource_key(job_run_key)
+        if (
+            isinstance(max_characters, bool)
+            or not isinstance(max_characters, int)
+            or not 1 <= max_characters <= MAX_JOB_RUN_OUTPUT_CHARACTERS
+        ):
+            raise AidpError(
+                "max_characters must be an integer from 1 to "
+                f"{MAX_JOB_RUN_OUTPUT_CHARACTERS}."
+            )
+        with self._clients() as clients:
+            instance_id, workspace_key, _, _, workflows = clients
+            task_runs = oci.pagination.list_call_get_all_results(
+                workflows.list_task_runs,
+                instance_id,
+                workspace_key,
+                job_run_key,
+            ).data.items
+            if len(task_runs) != 1:
+                raise AidpError("Job run must contain exactly one task run.")
+            task_run = task_runs[0]
+            task_run_key = _resource_key(task_run, "Task run")
+            output_key = getattr(task_run, "output_key", None)
+            if not isinstance(output_key, str) or not output_key:
+                raise AidpError("Task run has no available output key.")
+            output = workflows.fetch_output(
+                instance_id,
+                workspace_key,
+                task_run_key,
+                models.FetchOutputDetails(output_key=output_key),
+            ).data
+            return _task_run_output_response(
+                job_run_key, task_run, output, max_characters
+            )
+
 
 def _run_state(job_run):
     state = getattr(job_run, "state", None)
@@ -520,3 +822,90 @@ def _run_response(job_run, run_key):
         "start_time": str(getattr(job_run, "start_time", "")) or None,
         "end_time": str(getattr(job_run, "end_time", "")) or None,
     }
+
+
+def _cluster_response(cluster):
+    """Return an intentionally small, non-sensitive cluster summary."""
+    return {
+        "cluster_key": _resource_key(cluster, "Cluster"),
+        "display_name": getattr(cluster, "display_name", None),
+        "type": getattr(cluster, "type", None),
+        "state": getattr(cluster, "state", None),
+        "state_details": getattr(cluster, "state_details", None),
+        "runtime_version": getattr(
+            getattr(cluster, "cluster_runtime_config", None), "runtime_version", None
+        ),
+        "node_type": getattr(cluster, "node_type", None),
+        "driver": _shape_response(getattr(cluster, "driver_config", None)),
+        "workers": _worker_response(getattr(cluster, "worker_config", None)),
+        "auto_termination_minutes": getattr(cluster, "auto_termination_minutes", None),
+    }
+
+
+def _shape_response(configuration):
+    """Return selected driver shape fields without serializing SDK objects."""
+    if configuration is None:
+        return None
+    shape_config = getattr(configuration, "driver_shape_config", None)
+    return {
+        "node_type": getattr(configuration, "driver_node_type", None),
+        "shape": getattr(configuration, "driver_shape", None),
+        "ocpus": getattr(shape_config, "ocpus", None),
+        "memory_in_gbs": getattr(shape_config, "memory_in_gbs", None),
+    }
+
+
+def _worker_response(configuration):
+    """Return selected worker-count and shape fields without SDK internals."""
+    if configuration is None:
+        return None
+    shape_config = getattr(configuration, "worker_shape_config", None)
+    return {
+        "shape": getattr(configuration, "worker_shape", None),
+        "ocpus": getattr(shape_config, "ocpus", None),
+        "memory_in_gbs": getattr(shape_config, "memory_in_gbs", None),
+        "min_worker_count": getattr(configuration, "min_worker_count", None),
+        "max_worker_count": getattr(configuration, "max_worker_count", None),
+    }
+
+
+def _task_run_output_response(job_run_key, task_run, output, max_characters):
+    """Filter and bound task output returned to the MCP client."""
+    remaining = max_characters
+    locally_truncated = False
+    error_trace, remaining, error_trace_truncated = _take_text(
+        getattr(output, "error_trace", None), remaining
+    )
+    locally_truncated = error_trace_truncated
+    text_output = []
+    for item in getattr(output, "data", None) or []:
+        if (
+            getattr(item, "type", None) != "TEXT_PLAIN"
+            or getattr(item, "is_base64", False)
+            or getattr(item, "compression", None)
+        ):
+            continue
+        text, remaining, truncated = _take_text(getattr(item, "value", None), remaining)
+        locally_truncated = locally_truncated or truncated
+        if text is not None:
+            text_output.append({"type": "TEXT_PLAIN", "text": text})
+    return {
+        "job_run_key": job_run_key,
+        "task_run_key": _resource_key(task_run, "Task run"),
+        "task_key": getattr(task_run, "task_key", None),
+        "output_key": getattr(output, "key", None),
+        "task_type": getattr(output, "task_type", None),
+        "text_output": text_output,
+        "error_trace": error_trace,
+        "is_truncated": bool(getattr(output, "is_truncated", False))
+        or locally_truncated,
+    }
+
+
+def _take_text(value, remaining):
+    """Return at most the remaining text characters and an exhaustion flag."""
+    if not isinstance(value, str):
+        return None, remaining, False
+    if len(value) <= remaining:
+        return value, remaining - len(value), False
+    return value[:remaining], 0, True

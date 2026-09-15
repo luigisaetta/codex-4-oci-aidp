@@ -23,6 +23,8 @@ The initial server exposes these operations:
 | `ensure_notebook_job` | Creates or updates a workflow job | Reconcile one named job containing one workspace-backed notebook task attached to an explicitly selected cluster. |
 | `start_notebook_job` | Creates a job run | Start a run for an existing job and optionally poll it to a terminal state. |
 | `get_job_run` | Read-only | Return the current job-run and task-run status, with sanitized resource identifiers. |
+| `get_cluster_status` | Read-only | Resolve one exact cluster in the configured workspace and return a small, sanitized configuration and state summary. |
+| `get_job_run_output` | Read-only | Fetch bounded, textual output for the one task in a managed single-notebook job run. |
 
 The first version supports one notebook task per managed job. It uses no
 schedules, Git task sources, nested jobs, arbitrary Python tasks, or job
@@ -72,7 +74,12 @@ through validated tool arguments or `.env`.
 ### Upload contract
 
 `upload_notebook` accepts `local_path`, `workspace_path`, `overwrite`, and
-`apply`. It canonicalizes both paths, validates the `.ipynb` extension and
+`apply`. The workspace path is relative to the selected workspace root (for
+example, `notebooks/test00/test00.ipynb`). The server constructs its absolute
+`/Workspace/...` service path and URL-encodes it before passing it to the SDK.
+For a new notebook it creates or retains the parent folder, creates an empty
+notebook, renames it to the requested path, and uploads its JSON content. It
+canonicalizes both paths, validates the `.ipynb` extension and
 JSON syntax, and computes a SHA-256 digest before contacting AI DP. With
 `apply=false` (the default), it reports the resolved workspace destination and
 whether creation, update, or no change would occur after read-only discovery.
@@ -90,6 +97,11 @@ managed single notebook-task definition with the requested notebook path and
 cluster, then updates only fields owned by this server. It must not silently
 modify jobs with multiple tasks or unmanaged task types.
 
+The job name must start with a letter and contain only letters, numbers, or
+underscores, matching the AI DP resource-name constraint. Each generated
+notebook task explicitly sets `runIf` to `ALL_SUCCESS`, including the
+single-task case, because AI DP rejects a null task run condition.
+
 `start_notebook_job` accepts `job_name`, `wait`, `timeout_seconds`, and
 `confirm_start`. It fails unless `confirm_start=true`, rechecks that the job
 has exactly the supported task shape and that its cluster is active, then
@@ -98,9 +110,25 @@ When `wait=true`, it polls with a bounded interval and timeout, returning the
 last observed state without cancelling a run on timeout.
 
 `get_job_run` accepts a job-run key and is read-only. Output is limited to job
-and task states, timestamps, sanitized error messages, and resource keys. Log
-or notebook-output retrieval is deferred until a separate specification defines
-size limits and sensitive-data handling.
+and task states, timestamps, sanitized error messages, and resource keys.
+
+`get_cluster_status` accepts an exact `cluster_name`, rejects zero or multiple
+visible matches, then gets the resolved cluster. It returns its key, display name,
+type, state, state details, runtime version, node type, driver and worker
+configuration, and auto-termination setting. It omits endpoints, log identifiers,
+attached notebook/session lists, and arbitrary configuration objects.
+
+`get_job_run_output` accepts a job-run key and an optional `max_characters`
+value from 1 through 12,000 (default 12,000). It resolves the task runs and
+refuses runs that do not have exactly one task run, preserving the server's
+managed-single-task boundary. It fetches only the task run's recorded output
+key. The response includes metadata and at most `max_characters` from each
+uncompressed, non-base64 `TEXT_PLAIN` output item and its error trace. It
+does not decode or return notebook, HTML, image, binary, compressed, base64,
+file-path, or output-parameter values. It reports truncation caused by either
+AI DP or the local character bound. Task output can still contain sensitive
+application data: callers must request it only when that data is authorized
+for the active Codex session.
 
 ## Non-goals
 
@@ -143,7 +171,7 @@ absolute paths beyond the launcher itself.
 * Offline tests cover path validation, notebook validation, identifier
   validation, exact-match discovery, dry-run output, conflict handling, and
   bounded polling using mocked SDK clients.
-* A protocol test starts the stdio MCP server and verifies all four tool
+* A protocol test starts the stdio MCP server and verifies all six tool
   schemas without cloud access.
 * `upload_notebook` performs no SDK mutation when `apply=false`, and update
   logic is idempotent when the remote digest matches the local digest.
@@ -166,6 +194,8 @@ Verified 2026-09-15:
 * Oracle documents notebook tasks as workspace-backed tasks that select a
   compute cluster: <https://docs.oracle.com/en/cloud/paas/ai-data-platform/aidug/configure-tasks.html>
 * Oracle documents jobs and job-run tracking: <https://docs.oracle.com/en/cloud/paas/ai-data-platform/aidug/configure-jobs.html>
+* The AI DP REST reference documents cluster retrieval and task-run output
+  retrieval operations: <https://docs.oracle.com/en/cloud/paas/ai-data-platform/aiwap/rest-endpoints.html>
 * The locally installed `aidp-python-client` 4.2.1 exposes `NotebookClient`
   content operations and `WorkflowClient` job/job-run operations. These APIs
   have not been invoked against AI DP for this specification.
@@ -184,10 +214,104 @@ Verification completed locally without cloud access:
 * Black formatted the Python implementation.
 * `pytest` passed 83 tests, including 9 offline MCP adapter tests.
 * Pylint rated `aidp_mcp` 10.00/10.
-* A real local stdio protocol handshake discovered exactly the four specified
+* A real local stdio protocol handshake initially discovered exactly the four
+  specified
   tools.
 
-No local notebook has been uploaded and no AI DP job, job run, cluster action,
-or other OCI operation has been submitted. Remote verification remains pending
-explicit user authorization and a scoped test notebook, workspace destination,
-job name, and cluster selection.
+2026-09-15: Added `get_cluster_status` and `get_job_run_output`. Both use only
+read operations in the installed `aidp-python-client` 4.2.1 SDK. The latter
+uses `list_task_runs` and `fetch_output` only after validating the job-run key,
+single-task shape, output key, and local character bound. Offline MCP tests
+passed (24 tests) and Pylint rated `aidp_mcp` 10.00/10. No new AI DP API call
+was made; remote verification remains pending and must be explicitly
+authorized.
+
+On 2026-09-15, the first authorized remote upload dry-run identified a local
+configuration defect: `WORKSPACE_NAME` was present in `.env.example` but was
+not exposed by the shared connection parser. The parser was corrected and its
+offline coverage now verifies the setting. The failed dry-run made no remote
+mutation. A new dry-run is required before upload.
+
+The first write attempt on 2026-09-15 was rejected by OCI with
+`NotAuthorizedOrNotFound` before a notebook was created. Inspection of the
+installed AI DP SDK showed that it appends `content_path` directly to the
+notebook-content endpoint. The prior `/Workspace/...` validation introduced a
+double slash in that request and was corrected to require a workspace-relative
+path. Offline validation coverage now rejects absolute paths. A dry-run with
+the corrected path is required before another write.
+
+The generated Python SDK double-encodes `%2F` when it is passed through its
+`content_path` parameter. The server now uses the SDK client's authenticated
+base client with Oracle's documented notebook-content URL template and a
+single encoded final path segment. It creates or retains the parent workspace
+folder, creates the empty notebook, renames it and uploads content. The
+service returns a specific HTTP 500 `InternalError` message when a GET targets
+an absent notebook; only that response and HTTP 404 are interpreted as the
+absent-content case. Other service errors stop the operation.
+
+All generated AI DP clients used by the MCP server retain response timestamps
+as opaque values. This accommodates deployments that return numeric timestamps
+and avoids OCI SDK datetime deserialization failures during job discovery;
+the server does not interpret those values.
+
+Remote upload verification was attempted on 2026-09-15 with the configured
+instance, workspace and API-key credentials. The read-only dry-run resolved
+the selected resources and reported a `create` action for
+`notebooks/test00/test00.ipynb`. The subsequent `update_content` request to
+the SDK's corrected workspace-relative endpoint was rejected by OCI with
+`NotAuthorizedOrNotFound` (HTTP 404). OCI therefore did not confirm creation
+of the notebook. The service uses this code for both absent resources and
+authorization failures; because the dry-run reached the workspace, missing
+write permission on notebook content is the leading diagnosis, not a verified
+conclusion. No retry was made.
+
+Before another upload attempt, an administrator should verify that the
+configured OCI identity has the least-privilege AI DP authorization to modify
+notebook content in the selected instance and workspace. After that change,
+repeat the read-only dry-run and exactly one `apply=true` request with
+`overwrite=false`; if the outcome is uncertain, inspect the explicit notebook
+path in the AI DP UI before any retry. No cleanup is required because no
+notebook creation was confirmed.
+
+No notebook creation has been confirmed, and no AI DP job, job run, cluster
+action, or other OCI operation has been submitted. The corrected workflow has
+passed local verification but requires an explicitly authorized remote retry.
+
+On 2026-09-15, an authorized job-creation attempt established two AI DP
+workflow validation requirements. A hyphenated job name was rejected before
+creation; the MCP server now validates the documented observed name constraint
+locally. A valid-name attempt was then rejected because its notebook task sent
+a null `runIf`; the builder now sends `ALL_SUCCESS` and has offline regression
+coverage. Neither attempt created or updated a job. Codex must be restarted
+before the registered stdio MCP server can load this change; only then may the
+authorized job plan, creation, and run submission be retried.
+
+On 2026-09-15, an authorized retry after the remote notebook was manually
+deleted resolved a `create` action but stopped at the workspace folder step.
+AI DP returned HTTP 409 `Conflict` with `Directory already exists` for the
+retained `notebooks/test00` folder; no new notebook content was uploaded. The
+folder creation helper now recognizes only that documented observed response
+as an idempotent success and still raises all other errors. Its offline test
+covers that condition. Black, Pylint (10.00/10), and the 12 targeted offline
+tests passed. A subsequent read-only dry-run reported `create`, and one
+authorized `apply=true`, `overwrite=false` upload then completed successfully
+for `notebooks/test00/test00.ipynb`. No job, job run, or cluster action was
+submitted.
+
+On 2026-09-15, a read-only `ensure_notebook_job` plan for the uploaded
+`test00` notebook and cluster `clu02` reached AI DP but failed before returning
+a plan because `WorkflowClient` tried to parse a numeric timestamp as a date.
+The MCP client setup was updated to preserve timestamps for all generated AI DP
+clients, matching the existing project handling for this observed service
+behavior. Local regression coverage passed; restart Codex so its registered
+stdio MCP server loads the change, then repeat the read-only plan before
+creating the job. No job was created or updated by the failed plan.
+
+On 2026-09-15, an authorized read-only plan for `test00_job` resolved a
+`create` action for `notebooks/test00/test00.ipynb` on cluster `clu02`.
+The subsequent authorized apply operation created workflow job key
+`6964b0ee-02a8-4751-ae1d-85c3f64d8892`. One explicitly confirmed job run was
+then submitted with key `f2443369-1e33-4f92-8009-642369b1e627`; AI DP returned
+the initial state `SUBMITTED`. A subsequent read-only status query returned
+the terminal state `SUCCESS`, with no state message. No cluster lifecycle
+operation was performed.

@@ -20,6 +20,7 @@ CONNECTION_FIELDS = {
     "profile": ("OCI_PROFILE", "DEFAULT"),
     "region": ("REGION", "eu-frankfurt-1"),
     "instance-id": ("AIDP_INSTANCE_ID", None),
+    "workspace-name": ("WORKSPACE_NAME", None),
     "endpoint": ("AIDP_ENDPOINT", None),
 }
 

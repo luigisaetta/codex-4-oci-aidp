@@ -15,6 +15,17 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from aidp_common.connection import AidpError, load_auth, managed_client
+from aidp_common.settings import connection_parser
+
+
+def test_connection_parser_exposes_optional_workspace_name(tmp_path):
+    """Workspace consumers can read the shared workspace setting."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("WORKSPACE_NAME=example-workspace\n", encoding="utf-8")
+
+    parser, _, _ = connection_parser([], "Test settings.", env_file)
+
+    assert parser.parse_args([]).workspace_name == "example-workspace"
 
 
 def test_real_api_key_profile_and_region_override(tmp_path):

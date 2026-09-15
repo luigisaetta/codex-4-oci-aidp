@@ -166,3 +166,16 @@ Lifecycle-specific options and operations remain here. Preserve all existing
 behavior, especially timestamp compatibility, ETags and no-retry mutations.
 See `../../aidp_common/specs/001-shared-infrastructure.md` for the contract and
 `../../catalog_tree/specs/001-catalog-tree.md` for final regression evidence.
+
+## Shared workspace-name regression (2026-09-15)
+
+`WORKSPACE_NAME` is now a shared connection setting used by the MCP server and
+the cluster lifecycle command. The lifecycle parser must not re-register
+`--workspace-name`, because `connection_parser` already supplies that option.
+The duplicated registration caused `argparse.ArgumentError` before validation
+or any OCI client construction. Removing the local duplicate preserves CLI >
+environment > dotenv precedence and the existing mutual-exclusion validation
+with `WORKSPACE_KEY`.
+
+Verification: the complete offline test suite, Black, and Pylint must pass;
+no OCI API call is required or authorized for this parser-only correction.

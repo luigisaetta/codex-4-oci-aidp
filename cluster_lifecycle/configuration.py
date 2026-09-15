@@ -56,7 +56,6 @@ def parse_settings(argv=None):
     fields = {
         "cluster-name": ("CLUSTER_NAME", None),
         "workspace-key": ("WORKSPACE_KEY", None),
-        "workspace-name": ("WORKSPACE_NAME", None),
         "cluster-type": ("CLUSTER_TYPE", None),
     }
     for flag, (variable, default) in fields.items():

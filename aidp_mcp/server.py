@@ -23,8 +23,9 @@ def upload_notebook(
 ) -> dict:
     """Plan or upload a local repository notebook to an AI DP workspace.
 
-    `apply=false` is read-only. `apply=true` creates or replaces content only
-    when overwrite is explicitly true for an existing notebook.
+    `workspace_path` is relative to the selected workspace root. `apply=false`
+    is read-only. `apply=true` creates or replaces content only when
+    overwrite is explicitly true for an existing notebook.
     """
     return _service().upload_notebook(local_path, workspace_path, overwrite, apply)
 
@@ -71,6 +72,18 @@ def start_notebook_job(
 def get_job_run(job_run_key: str) -> dict:
     """Read sanitized status for a previously submitted AI DP job run."""
     return _service().get_job_run(job_run_key)
+
+
+@MCP.tool()
+def get_cluster_status(cluster_name: str) -> dict:
+    """Read the selected AI DP cluster's state and small configuration summary."""
+    return _service().get_cluster_status(cluster_name)
+
+
+@MCP.tool()
+def get_job_run_output(job_run_key: str, max_characters: int = 12000) -> dict:
+    """Read bounded plain-text output for a managed single-notebook job run."""
+    return _service().get_job_run_output(job_run_key, max_characters)
 
 
 def main():
