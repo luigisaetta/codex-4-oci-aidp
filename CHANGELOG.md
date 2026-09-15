@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-15: Replace manual Workbench REST calls with Oracle AI DP SDK 4.2.1
+  clients and typed models. Pin compatible OCI 2.165.1, document SDK installation
+  and shared dependencies, and exercise generated clients with offline HTTP tests.
+
 * 2026-09-15: Add operation banners with UTC start/end timestamps and elapsed
   time to cluster lifecycle commands. Add Python 3.11+, Black, Pylint and pytest
   badges to the main README and move contributor checks to DEVELOPMENT.md.

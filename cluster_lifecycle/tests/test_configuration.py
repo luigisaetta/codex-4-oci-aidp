@@ -36,7 +36,7 @@ def test_frankfurt_defaults_and_dotenv_location(env_file, monkeypatch, tmp_path)
     assert args.compartment == "demo"
     assert args.action == "status"
     assert args.region == "eu-frankfurt-1"
-    assert args.endpoint == "https://datalake.eu-frankfurt-1.oci.oraclecloud.com"
+    assert args.endpoint is None  # The installed SDK resolves the regional endpoint.
 
 
 def test_config_precedence_and_boolean_overrides(env_file, monkeypatch):
@@ -69,7 +69,8 @@ def test_config_precedence_and_boolean_overrides(env_file, monkeypatch):
     assert args.compartment == "cli"
     assert args.action == "stop"
     assert not args.wait and not args.dry_run
-    assert args.endpoint == "https://datalake.us-ashburn-1.oci.oraclecloud.com"
+    assert args.region == "us-ashburn-1"
+    assert args.endpoint is None
     assert process_env == {"COMPARTMENT": "environment"}
 
 
@@ -125,8 +126,8 @@ def test_explicit_missing_env_file(env_file):
     assert error.value.code == 2
 
 
-def test_sdk_pagination_and_workspace_name_filter():
-    """Exercise real OCI pagination over collection models with fake service calls."""
+def test_sdk_pagination_and_workspace_name_filter(sdk_clients, http_response):
+    """Exercise real OCI and AI DP pagination with fake service responses."""
     control = Mock()
     control.list_ai_data_platforms.__name__ = "list_ai_data_platforms"
     model = oci.ai_data_platform.models
@@ -148,15 +149,25 @@ def test_sdk_pagination_and_workspace_name_filter():
             None,
         ),
     ]
-    workbench = Mock()
-    workbench.items.side_effect = [
-        [{"key": "ignore", "displayName": "other"}],
-        [{"key": "chosen", "displayName": "workspace"}],
-        [{"key": "cluster-key", "displayName": "cluster", "type": "USER"}],
+    sdk_clients.workspace_http.side_effect = [
+        http_response({"items": [{"key": "ignore", "displayName": "other"}]}),
+        http_response({"items": []}, **{"opc-next-page": "ws-page"}),
+        http_response({"items": [{"key": "chosen", "displayName": "workspace"}]}),
+    ]
+    sdk_clients.cluster_http.side_effect = [
+        http_response({"items": []}, **{"opc-next-page": "cluster-page"}),
+        http_response(
+            {
+                "items": [
+                    {"key": "cluster-key", "displayName": "cluster", "type": "USER"}
+                ]
+            }
+        ),
     ]
     target = lifecycle.discover(
         control,
-        workbench,
+        sdk_clients.workspaces,
+        sdk_clients.clusters,
         "compartment",
         "cluster",
         workspace_name="workspace",
@@ -164,21 +175,91 @@ def test_sdk_pagination_and_workspace_name_filter():
     )
     assert target == lifecycle.Target("second", "chosen", "cluster-key")
     assert control.list_ai_data_platforms.call_args.kwargs["page"] == "next"
-    assert workbench.items.call_count == 3
+    assert sdk_clients.workspace_http.call_count == 3
+    query = dict(sdk_clients.cluster_http.call_args.kwargs["params"])
+    assert query["page"] == "cluster-page"
+    assert query["displayName"] == "cluster"
+    assert query["type"] == "USER"
 
 
-def test_discovery_failure_cannot_mutate():
-    """Do not ignore an inaccessible workspace during uniqueness discovery."""
-    control, workbench = Mock(), Mock()
+@pytest.mark.parametrize("count", [0, 1, 2])
+def test_discovery_unique_match(sdk_clients, http_response, count):
+    """Only a unique name match across all result pages can be selected."""
+    control = Mock()
     control.get_ai_data_platform.return_value.data = SimpleNamespace(
         id="instance", compartment_id="compartment", lifecycle_state="ACTIVE"
     )
-    workbench.items.side_effect = lifecycle.LifecycleError("Access denied")
-    with pytest.raises(lifecycle.LifecycleError, match="Access denied"):
-        lifecycle.discover(
-            control, workbench, "compartment", "cluster", instance_id="instance"
+    sdk_clients.workspace_http.return_value = http_response(
+        {"items": [{"key": "workspace"}]}
+    )
+    sdk_clients.cluster_http.side_effect = [
+        http_response(
+            {"items": [{"key": str(i), "displayName": "cluster"}]},
+            **({"opc-next-page": str(i + 1)} if i < count - 1 else {}),
         )
-    workbench.request.assert_not_called()
+        for i in range(count)
+    ] or [http_response({"items": []})]
+    if count == 1:
+        target = lifecycle.discover(
+            control,
+            sdk_clients.workspaces,
+            sdk_clients.clusters,
+            "compartment",
+            "cluster",
+            instance_id="instance",
+        )
+        assert target.cluster_key == "0"
+    else:
+        with pytest.raises(lifecycle.LifecycleError, match="visible matches"):
+            lifecycle.discover(
+                control,
+                sdk_clients.workspaces,
+                sdk_clients.clusters,
+                "compartment",
+                "cluster",
+                instance_id="instance",
+            )
+    assert all(c.args[0] == "GET" for c in sdk_clients.cluster_http.call_args_list)
+
+
+def test_instance_compartment_boundary(sdk_clients):
+    """An explicit instance must still belong to the selected compartment."""
+    control = Mock()
+    control.get_ai_data_platform.return_value.data = SimpleNamespace(
+        compartment_id="other", lifecycle_state="ACTIVE"
+    )
+    with pytest.raises(lifecycle.LifecycleError, match="requested compartment"):
+        lifecycle.discover(
+            control,
+            sdk_clients.workspaces,
+            sdk_clients.clusters,
+            "compartment",
+            "cluster",
+            instance_id="instance",
+        )
+    sdk_clients.workspace_http.assert_not_called()
+    sdk_clients.cluster_http.assert_not_called()
+
+
+def test_discovery_failure_cannot_mutate(sdk_clients, http_response):
+    """Do not ignore an inaccessible workspace during uniqueness discovery."""
+    control = Mock()
+    control.get_ai_data_platform.return_value.data = SimpleNamespace(
+        id="instance", compartment_id="compartment", lifecycle_state="ACTIVE"
+    )
+    sdk_clients.workspace_http.return_value = http_response(
+        {"code": "NotAuthorized", "message": "denied"}, 403
+    )
+    with pytest.raises(oci.exceptions.ServiceError):
+        lifecycle.discover(
+            control,
+            sdk_clients.workspaces,
+            sdk_clients.clusters,
+            "compartment",
+            "cluster",
+            instance_id="instance",
+        )
+    sdk_clients.cluster_http.assert_not_called()
 
 
 def test_main_uses_selected_profile_region_and_workspace(env_file, monkeypatch):
@@ -205,6 +286,9 @@ def test_main_uses_selected_profile_region_and_workspace(env_file, monkeypatch):
     )
     discover = Mock(return_value=lifecycle.Target("instance", "workspace", "cluster"))
     monkeypatch.setattr(lifecycle, "discover", discover)
+    monkeypatch.setattr(lifecycle, "WorkspaceClient", Mock())
+    clusters = Mock()
+    monkeypatch.setattr(lifecycle, "ClusterClient", clusters)
     change = Mock()
     monkeypatch.setattr(lifecycle, "change_state", change)
     assert lifecycle.main(["status", "--env-file", str(env_file)]) == 0
@@ -213,6 +297,9 @@ def test_main_uses_selected_profile_region_and_workspace(env_file, monkeypatch):
     assert control.call_args.kwargs["signer"] is signer.return_value
     assert discover.call_args.kwargs["workspace_name"] == "workspace"
     assert change.call_args.args[2] == "status"
+    assert "service_endpoint" not in clusters.call_args.kwargs
+    assert clusters.call_args.args[0]["region"] == "eu-frankfurt-1"
+    clusters.return_value.base_client.session.close.assert_called_once()
 
 
 @pytest.mark.parametrize("outcome", [0, 1, KeyboardInterrupt()])
@@ -239,3 +326,38 @@ def test_execution_banners_cover_success_failure_and_interrupt(
     assert "2026-09-15T10:00:00+00:00" in output
     assert "2026-09-15T10:00:02+00:00" in output
     assert "### Elapsed time : 2.500 seconds" in output
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        oci.exceptions.ServiceError(403, "Forbidden", {}, "SECRET"),
+        oci.exceptions.RequestException("SECRET"),
+    ],
+)
+def test_cli_errors_are_redacted(env_file, monkeypatch, capsys, error):
+    """The CLI preserves failure diagnostics without exposing SDK exception text."""
+    monkeypatch.setattr(lifecycle.oci.config, "from_file", Mock(side_effect=error))
+    assert lifecycle.main(["status", "--env-file", str(env_file)]) == 1
+    output = capsys.readouterr()
+    assert "SECRET" not in output.err + output.out
+    assert "| END" in output.out
+
+
+def test_compartment_ocid_and_ambiguous_name(monkeypatch):
+    """An OCID avoids IAM lookup; duplicate names are rejected."""
+    identity = Mock()
+    ocid = "ocid1.compartment.oc1..example"
+    assert lifecycle.resolve_compartment(identity, "tenancy", ocid) == ocid
+    identity.list_compartments.assert_not_called()
+    result = SimpleNamespace(
+        data=[
+            SimpleNamespace(id="one", name="demo"),
+            SimpleNamespace(id="two", name="demo"),
+        ]
+    )
+    monkeypatch.setattr(
+        oci.pagination, "list_call_get_all_results", Mock(return_value=result)
+    )
+    with pytest.raises(lifecycle.LifecycleError, match="2 visible matches"):
+        lifecycle.resolve_compartment(identity, "tenancy", "demo")

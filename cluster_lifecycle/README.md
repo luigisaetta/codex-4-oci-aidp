@@ -2,8 +2,9 @@
 
 Find a Workbench cluster by compartment and exact name, then inspect, start or
 stop it. Python uses the OCI SDK for authentication and instance discovery, and
-signed REST requests for Workbench operations. No separate AIDP SDK or OCI CLI
-installation is required.
+the [Oracle AI DP SDK](https://github.com/oracle-samples/aidataplatform-sdk) for
+Workbench operations through `WorkspaceClient` and `ClusterClient`. OCI CLI is
+not required.
 
 See the [specification](specs/001-cluster-lifecycle.md).
 
@@ -53,39 +54,23 @@ optional settings are unset. Existing process variables are never modified.
 | `DRY_RUN` | `false`; read-only validation when true |
 | `AIDP_ENDPOINT` | Normally empty; optional HTTPS origin override |
 
-The endpoint is derived from `REGION` using the template in Oracle's
-[generated ClusterClient](https://github.com/oracle-samples/aidataplatform-sdk/blob/main/aidp-python-client/src/aidp_python_client/aidataplatform_dp/cluster_client.py)
-and OCI region/realm metadata. Frankfurt resolves to
-`https://datalake.eu-frankfurt-1.oci.oraclecloud.com`. This is verified against
-client source; availability in the target tenancy still requires a live check.
-The implementation uses Workbench API version `20260430`.
+The installed AI DP SDK derives its endpoint from `REGION` and OCI realm metadata.
+Frankfurt resolves to `https://datalake.eu-frankfurt-1.oci.oraclecloud.com`.
+An explicit `AIDP_ENDPOINT` is passed as the SDK's `service_endpoint` override.
+The SDK uses Workbench API version `20260430`.
 
 ## Environment and packages
 
-Use the existing project Conda environment. From the repository root:
+Use Python 3.11+ and the project Conda environment. Follow the root
+[installation instructions and dependency table](../README.md#shared-configuration-and-dependencies)
+to download the Oracle SDK wheel and install shared requirements. Runtime packages
+are `oci`, `aidp-python-client` and `python-dotenv`. The SDK handles signing,
+resource URL construction, serialization and typed responses.
 
-```bash
-conda activate codex-4-oci-aidp
-python -m pip install -r requirements-dev.txt
-```
-
-For execution only, install [requirements.txt](../requirements.txt). The shared root [development requirements](../requirements-dev.txt) include runtime packages plus the quality tools below. Direct
-versions are pinned; transitive dependencies are resolved by pip.
-
-| Package | Pinned version | Purpose |
-| --- | --- | --- |
-| `oci` | 2.186.0 | OCI config, API-key signing, region resolution and discovery |
-| `requests` | 2.34.2 | Signed Workbench HTTP requests |
-| `python-dotenv` | 1.2.3 | Read the local settings file |
-| `black` | 26.5.1 | Python formatting |
-| `pylint` | 4.0.8 | Static code checks |
-| `pytest` | 9.1.1 | Offline test execution |
-
-Use Python 3.11 or later.
-The same standalone script is intended for a Python-capable OCI AI DP runtime
-with dependencies, API-key configuration and network access. Conda is not
-required remotely. Resource-principal and session-token authentication require
-a separate specification.
+The script is intended for macOS and a Python-capable OCI AI DP runtime with
+dependencies, API-key configuration and network access. Conda is not required
+remotely. Resource-principal and session-token authentication require a separate
+specification.
 
 ## Run
 
@@ -150,8 +135,10 @@ access to OCI and Workbench endpoints are prerequisites.
 
 Dry-run performs real read requests and state validation. It cannot prove
 mutation permissions, available capacity or future state stability. ETags guard
-against concurrent changes when available. Mutations are never automatically
-retried; OCI's pagination helper may retry read operations. HTTP redirects are
+against concurrent changes when available. Mutations use an explicit
+`NoneRetryStrategy` and a unique retry token; the application does not resubmit
+failed actions. OCI pagination may retry reads, and SDK transport recovery may
+retry malformed HTTP-header responses using the same token. HTTP redirects are
 disabled. HTTP connect/read timeouts are 10/30 seconds. An in-flight HTTP request
 may extend the polling deadline.
 

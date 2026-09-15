@@ -2,219 +2,174 @@
 Author: L. Saetta
 Date last modified: 2026-09-15
 License: MIT
-Description: Offline tests for cluster discovery, REST requests and lifecycle handling.
+Description: Exercise lifecycle actions through the installed Oracle AI DP SDK.
 """
 
-import argparse
-import contextlib
-import io
-import unittest
-from types import SimpleNamespace
-from unittest.mock import Mock, patch
+import json
+from unittest.mock import Mock
 
-import requests
+import oci
+import pytest
+from oci._vendor import requests
 
 import cluster_lifecycle as lifecycle
 
+TARGET = lifecycle.Target("instance", "workspace", "cluster")
 
-class ClusterLifecycleTests(unittest.TestCase):
-    """Verify cloud action boundaries without credentials or network calls."""
 
-    def setUp(self):
-        """Create an isolated target and suppress command output during each test."""
-        self.target = lifecycle.Target("instance", "workspace", "cluster")
-        self.output = io.StringIO()
-        contexts = contextlib.ExitStack()
-        contexts.enter_context(contextlib.redirect_stdout(self.output))
-        self.addCleanup(contexts.close)
+@pytest.mark.parametrize(
+    "action,origin,transition",
+    [("start", "STOPPED", "STARTING"), ("stop", "ACTIVE", "STOPPING")],
+)
+def test_action_serialization(
+    sdk_clients, http_response, capsys, *, action, origin, transition
+):
+    """Real SDK methods serialize the body, resource path, ETag and retry token."""
+    sdk_clients.cluster_http.side_effect = [
+        http_response({"state": origin}, etag="v1"),
+        http_response({"state": transition}, 202, **{"aidp-async-operation-key": "op"}),
+    ]
+    lifecycle.change_state(sdk_clients.clusters, TARGET, action)
+    calls = sdk_clients.cluster_http.call_args_list
+    assert len(calls) == 2
+    assert calls[0].args[0] == "GET"
+    assert calls[1].args == (
+        "POST",
+        "https://datalake.eu-frankfurt-1.oci.oraclecloud.com/20260430/"
+        "aiDataPlatforms/instance/workspaces/workspace/clusters/cluster/"
+        f"actions/{action}",
+    )
+    assert json.loads(calls[1].kwargs["data"]) == {}
+    assert calls[1].kwargs["headers"]["if-match"] == "v1"
+    assert calls[1].kwargs["headers"]["opc-retry-token"]
+    assert calls[1].kwargs["timeout"] == (10, 30)
+    assert "completion has not yet been verified" in capsys.readouterr().out
 
-    def test_start_and_stop_contract(self):
-        """Each action uses the matching POST route and the most recent ETag."""
-        for action, state in (("start", "STOPPED"), ("stop", "ACTIVE")):
-            with self.subTest(action=action):
-                client = Mock()
-                client.request.side_effect = [
-                    ({"state": state}, {"etag": "v1"}),
-                    ({}, {}),
-                ]
-                lifecycle.change_state(client, self.target, action)
-                self.assertEqual(client.request.call_count, 2)
-                client.request.assert_called_with(
-                    "POST", self.target.path + f"/actions/{action}", etag="v1"
-                )
-                self.assertIn(
-                    "completion has not yet been verified", self.output.getvalue()
-                )
 
-    def test_read_only_noop_and_in_progress_do_not_post(self):
-        """Status, dry-run, satisfied state and matching transition never mutate."""
-        cases = [
-            ("status", "FAILED", False),
-            ("start", "STOPPED", True),
-            ("stop", "ACTIVE", True),
-            ("start", "ACTIVE", False),
-            ("stop", "STOPPED", False),
-            ("start", "STARTING", False),
-            ("stop", "STOPPING", False),
-        ]
-        for action, state, dry_run in cases:
-            with self.subTest(action=action, state=state, dry_run=dry_run):
-                client = Mock()
-                client.request.return_value = ({"state": state}, {})
-                lifecycle.change_state(client, self.target, action, dry_run=dry_run)
-                client.request.assert_called_once_with("GET", self.target.path)
+@pytest.mark.parametrize(
+    "action,state,dry_run",
+    [
+        ("status", "FAILED", False),
+        ("start", "STOPPED", True),
+        ("stop", "ACTIVE", True),
+        ("start", "ACTIVE", False),
+        ("stop", "STOPPED", False),
+        ("start", "STARTING", False),
+        ("stop", "STOPPING", False),
+    ],
+)
+def test_read_only_and_noop(sdk_clients, http_response, action, state, dry_run):
+    """Read-only, completed and in-progress operations never send POSTs."""
+    sdk_clients.cluster_http.return_value = http_response({"state": state})
+    lifecycle.change_state(sdk_clients.clusters, TARGET, action, dry_run=dry_run)
+    assert sdk_clients.cluster_http.call_count == 1
+    assert sdk_clients.cluster_http.call_args.args[0] == "GET"
 
-    def test_invalid_state_is_rejected(self):
-        """Failed and opposite-transition states cannot trigger a new action."""
-        for state in ("FAILED", "DELETED", "STOPPING", "UNKNOWN", None):
-            client = Mock()
-            client.request.return_value = ({"state": state}, {})
-            with self.assertRaises(lifecycle.LifecycleError):
-                lifecycle.change_state(client, self.target, "start")
-            self.assertEqual(client.request.call_count, 1)
 
-    def test_wait_completes_without_resubmission(self):
-        """An existing transition can be awaited without submitting another POST."""
-        client = Mock()
-        client.request.side_effect = [
-            ({"state": "STARTING"}, {}),
-            ({"state": "ACTIVE"}, {}),
-        ]
-        lifecycle.change_state(client, self.target, "start", wait=True)
-        self.assertTrue(
-            all(call.args[0] == "GET" for call in client.request.call_args_list)
+@pytest.mark.parametrize(
+    "state", ["FAILED", "DELETED", "STOPPING", "FUTURE_STATE", None]
+)
+def test_invalid_state(sdk_clients, http_response, state):
+    """Reject unsafe, missing or future lifecycle states before mutation."""
+    sdk_clients.cluster_http.return_value = http_response({"state": state})
+    with pytest.raises(lifecycle.LifecycleError):
+        lifecycle.change_state(sdk_clients.clusters, TARGET, "start")
+    assert sdk_clients.cluster_http.call_count == 1
+
+
+def test_wait_existing_operation(sdk_clients, http_response, capsys):
+    """An existing transition can complete without another action request."""
+    sdk_clients.cluster_http.side_effect = [
+        http_response({"state": "STARTING"}),
+        http_response({"state": "ACTIVE"}),
+    ]
+    lifecycle.change_state(sdk_clients.clusters, TARGET, "start", wait=True)
+    assert all(c.args[0] == "GET" for c in sdk_clients.cluster_http.call_args_list)
+    assert "Completed: ACTIVE" in capsys.readouterr().out
+
+
+def test_wait_failure_and_timeout(sdk_clients, http_response, monkeypatch):
+    """Polling failures and deadlines do not resubmit or cancel operations."""
+    sdk_clients.cluster_http.side_effect = [
+        http_response({"state": "STARTING"}),
+        http_response({"state": "FAILED"}),
+    ]
+    with pytest.raises(lifecycle.LifecycleError, match="Unexpected cluster state"):
+        lifecycle.change_state(sdk_clients.clusters, TARGET, "start", wait=True)
+    sdk_clients.cluster_http.side_effect = None
+    sdk_clients.cluster_http.return_value = http_response({"state": "STARTING"})
+    monkeypatch.setattr(lifecycle.time, "monotonic", Mock(side_effect=[0, 2]))
+    with pytest.raises(lifecycle.LifecycleError, match="not cancelled"):
+        lifecycle.change_state(
+            sdk_clients.clusters, TARGET, "start", wait=True, wait_timeout=1
         )
-        self.assertIn("Completed: ACTIVE", self.output.getvalue())
 
-    def test_wait_failure_and_timeout(self):
-        """Polling reports failure and elapsed deadlines without changing resources."""
-        client = Mock()
-        client.request.side_effect = [
-            ({"state": "STARTING"}, {}),
-            ({"state": "FAILED"}, {}),
-        ]
-        with self.assertRaisesRegex(
-            lifecycle.LifecycleError, "Unexpected cluster state"
-        ):
-            lifecycle.change_state(client, self.target, "start", wait=True)
-        client.request.side_effect = None
-        client.request.return_value = ({"state": "STARTING"}, {})
-        with patch.object(lifecycle.time, "monotonic", side_effect=[0, 2]):
-            with self.assertRaisesRegex(lifecycle.LifecycleError, "not cancelled"):
-                lifecycle.change_state(
-                    client, self.target, "start", wait=True, wait_timeout=1
-                )
 
-    def test_rest_pagination(self):
-        """All result pages are consumed with the returned next-page token."""
-        client = lifecycle.WorkbenchClient("https://example.invalid", None, Mock())
-        client.request = Mock(
-            side_effect=[
-                ({"items": [{"key": "a"}]}, {"opc-next-page": "next"}),
-                ({"items": [{"key": "b"}]}, {}),
-            ]
+@pytest.mark.parametrize("status", [403, 409, 412, 429, 500])
+def test_mutation_service_errors_are_not_retried(sdk_clients, http_response, status):
+    """Each failed submission causes one POST, even for normally retryable errors."""
+    sdk_clients.cluster_http.side_effect = [
+        http_response({"state": "STOPPED"}),
+        http_response({"code": "TestError", "message": "private server text"}, status),
+    ]
+    with pytest.raises(oci.exceptions.ServiceError):
+        lifecycle.change_state(sdk_clients.clusters, TARGET, "start")
+    assert sdk_clients.cluster_http.call_count == 2
+
+
+def test_uncertain_submission(sdk_clients, http_response):
+    """Transport errors are redacted and an unknown outcome is made explicit."""
+    sdk_clients.cluster_http.side_effect = [
+        http_response({"state": "STOPPED"}),
+        requests.exceptions.ReadTimeout("SECRET"),
+    ]
+    with pytest.raises(lifecycle.LifecycleError, match="outcome is unknown") as error:
+        lifecycle.change_state(sdk_clients.clusters, TARGET, "start")
+    assert "SECRET" not in str(error.value)
+    assert sdk_clients.cluster_http.call_count == 2
+
+
+def test_sdk_encodes_cluster_identifiers(sdk_clients, http_response):
+    """The SDK owns URL escaping for identifiers containing spaces."""
+    sdk_clients.cluster_http.return_value = http_response({"state": "ACTIVE"})
+    lifecycle.change_state(
+        sdk_clients.clusters, lifecycle.Target("instance", "workspace", "c d"), "status"
+    )
+    assert (
+        "/workspaces/workspace/clusters/c%20d"
+        in sdk_clients.cluster_http.call_args.args[1]
+    )
+
+
+@pytest.mark.parametrize("key", ["a/b", "..", ".", "a\\b", "", " "])
+def test_resource_keys_cannot_change_path(key):
+    """Reject keys that the supported OCI SDK would interpret as path structure."""
+    with pytest.raises(lifecycle.LifecycleError, match="single path segments"):
+        lifecycle.Target("instance", key, "cluster")
+
+
+def test_ai_compute_models(sdk_clients, http_response):
+    """AI Compute responses deserialize through the SDK's discriminator."""
+    sdk_clients.cluster_http.side_effect = [
+        http_response({"sourceApi": "AI_COMPUTE", "state": "ACTIVE"}),
+        http_response({"sourceApi": "AI_COMPUTE", "state": "STOPPING"}, 202),
+    ]
+    lifecycle.change_state(sdk_clients.clusters, TARGET, "stop")
+    assert sdk_clients.cluster_http.call_count == 2
+
+
+def test_sdk_region_and_override(sdk_clients):
+    """Both generated clients resolve Frankfurt and accept an explicit origin."""
+    for client in (sdk_clients.clusters, sdk_clients.workspaces):
+        assert client.base_client.endpoint == (
+            "https://datalake.eu-frankfurt-1.oci.oraclecloud.com/20260430"
         )
-        self.assertEqual(list(client.items("/items")), [{"key": "a"}, {"key": "b"}])
-        self.assertEqual(client.request.call_args.kwargs["params"]["page"], "next")
-
-    def test_repeated_token_and_bad_collection_fail(self):
-        """Broken pagination or schemas cannot silently produce partial discovery."""
-        client = lifecycle.WorkbenchClient("https://example.invalid", None, Mock())
-        for result in (({"items": []}, {"opc-next-page": "same"}), ({}, {})):
-            client.request = Mock(return_value=result)
-            with self.assertRaises(lifecycle.LifecycleError):
-                list(client.items("/items"))
-
-    def test_rest_request_body_redirects_and_error_redaction(self):
-        """The adapter sends empty JSON and does not expose raw HTTP errors."""
-        session = Mock()
-        response = session.request.return_value
-        response.status_code = 202
-        response.json.return_value = {}
-        response.headers = {}
-        client = lifecycle.WorkbenchClient("https://example.invalid", None, session)
-        client.request("POST", "/action", etag="v2")
-        options = session.request.call_args.kwargs
-        self.assertEqual(options["json"], {})
-        self.assertFalse(options["allow_redirects"])
-        self.assertEqual(options["headers"]["if-match"], "v2")
-        response.status_code = 403
-        response.text = "SECRET"
-        with self.assertRaises(lifecycle.LifecycleError) as error:
-            client.request("POST", "/action")
-        self.assertNotIn("SECRET", str(error.exception))
-        session.request.side_effect = requests.Timeout("SECRET")
-        with self.assertRaisesRegex(lifecycle.LifecycleError, "outcome is unknown"):
-            client.request("POST", "/action")
-
-    def test_encoded_resource_keys_and_invalid_endpoints(self):
-        """Resource keys remain individual path segments and origins require HTTPS."""
-        target = lifecycle.Target("instance", "a/b", "c d")
-        self.assertIn("/workspaces/a%2Fb/clusters/c%20d", target.path)
-        for endpoint in (
-            "http://example.invalid",
-            "https://user:password@example.invalid",
-            "https://example.invalid/path",
-            "https://example.invalid?token=x",
-        ):
-            with self.assertRaises(argparse.ArgumentTypeError):
-                lifecycle.WorkbenchClient(endpoint, None, Mock())
-
-    def test_discovery_requires_unique_match(self):
-        """Duplicates across workspaces and absent targets cannot cause mutations."""
-        control, client = Mock(), Mock()
-        control.get_ai_data_platform.return_value.data = SimpleNamespace(
-            id="instance", compartment_id="compartment", lifecycle_state="ACTIVE"
-        )
-        for count in (0, 1, 2):
-            client.items.side_effect = [
-                [{"key": "workspace"}],
-                [{"key": str(i), "displayName": "demo"} for i in range(count)],
-            ]
-            if count == 1:
-                target = lifecycle.discover(
-                    control, client, "compartment", "demo", instance_id="instance"
-                )
-                self.assertEqual(target.cluster_key, "0")
-            else:
-                with self.assertRaises(lifecycle.LifecycleError):
-                    lifecycle.discover(
-                        control, client, "compartment", "demo", instance_id="instance"
-                    )
-        client.request.assert_not_called()
-
-    def test_instance_compartment_mismatch(self):
-        """An explicit instance does not bypass the compartment constraint."""
-        control, client = Mock(), Mock()
-        control.get_ai_data_platform.return_value.data = SimpleNamespace(
-            compartment_id="other", lifecycle_state="ACTIVE"
-        )
-        with self.assertRaises(lifecycle.LifecycleError):
-            lifecycle.discover(
-                control, client, "compartment", "demo", instance_id="instance"
-            )
-        client.items.assert_not_called()
-
-    def test_compartment_ocid_and_duplicate_names(self):
-        """OCIDs skip IAM listing and ambiguous names fail explicitly."""
-        identity = Mock()
-        value = "ocid1.compartment.oc1..example"
-        self.assertEqual(
-            lifecycle.resolve_compartment(identity, "tenancy", value), value
-        )
-        identity.list_compartments.assert_not_called()
-        result = SimpleNamespace(
-            data=[
-                SimpleNamespace(id="a", name="demo"),
-                SimpleNamespace(id="b", name="demo"),
-            ]
-        )
-        with patch.object(
-            lifecycle.oci.pagination, "list_call_get_all_results", return_value=result
-        ):
-            with self.assertRaises(lifecycle.LifecycleError):
-                lifecycle.resolve_compartment(identity, "tenancy", "demo")
-
-
-if __name__ == "__main__":
-    unittest.main()
+    custom = lifecycle.ClusterClient(
+        {"region": "eu-frankfurt-1"},
+        signer=sdk_clients.clusters.base_client.signer,
+        service_endpoint="https://example.invalid",
+    )
+    try:
+        assert custom.base_client.endpoint == "https://example.invalid/20260430"
+    finally:
+        custom.base_client.session.close()

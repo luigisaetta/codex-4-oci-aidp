@@ -11,141 +11,50 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from urllib.parse import quote
+from contextlib import ExitStack
+from uuid import uuid4
 
 import oci
-import requests
+from aidp_python_client.aidataplatform_dp import ClusterClient, WorkspaceClient, models
 
-from configuration import endpoint_origin, parse_settings
-
-API_VERSION = "20260430"
+from configuration import parse_settings
 
 
 class LifecycleError(Exception):
     """An actionable discovery, API, or lifecycle failure."""
 
 
-def _segment(value):
-    return quote(value, safe="")
+def _validate_resource_key(value):
+    """Reject path separators that OCI 2.165.1 does not escape in path parameters."""
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or any(character in value for character in ("/", "\\"))
+        or value in (".", "..")
+    ):
+        raise LifecycleError("Resource keys must be nonempty single path segments.")
 
 
 @dataclass(frozen=True)
 class Target:
-    """Unique cluster address resolved within the requested compartment."""
+    """Unique cluster identifiers passed to the generated SDK methods."""
 
     instance_id: str
     workspace_key: str
     cluster_key: str
 
+    def __post_init__(self):
+        for value in (self.instance_id, self.workspace_key, self.cluster_key):
+            _validate_resource_key(value)
+
     @property
-    def path(self):
-        """Return the REST resource path with individually encoded identifiers."""
-        return (
-            f"/{API_VERSION}/aiDataPlatforms/{_segment(self.instance_id)}"
-            f"/workspaces/{_segment(self.workspace_key)}"
-            f"/clusters/{_segment(self.cluster_key)}"
-        )
-
-
-class WorkbenchClient:
-    """Small signed REST adapter; no redirects or automatic mutation retries.
-
-    Args:
-        endpoint: Trusted Workbench HTTPS service origin.
-        signer: OCI API-key request signer.
-        session: Optional Requests-compatible session for offline testing.
-    """
-
-    def __init__(self, endpoint, signer, session=None):
-        self.endpoint = endpoint_origin(endpoint)
-        self.session = session if session is not None else requests.Session()
-        self.session.auth = signer
-
-    def request(self, method, path, *, params=None, etag=None):
-        """Send one signed request and return its JSON object and headers.
-
-        Args:
-            method: GET or POST.
-            path: Encoded API resource path.
-            params: Optional query parameters.
-            etag: Optional concurrency guard for a mutation.
-
-        Returns:
-            A pair containing the decoded response object and response headers.
-
-        Raises:
-            LifecycleError: Transport, HTTP, or response-schema failure.
-        """
-        headers = {"accept": "application/json"}
-        if etag:
-            headers["if-match"] = etag
-        options = {"json": {}} if method == "POST" else {}
-        try:
-            response = self.session.request(
-                method,
-                self.endpoint + path,
-                params=params,
-                headers=headers,
-                timeout=(10, 30),
-                allow_redirects=False,
-                **options,
-            )
-        except requests.RequestException as exc:
-            advice = (
-                " Submission outcome is unknown; check status before retrying."
-                if method == "POST"
-                else " Check connectivity and the Workbench endpoint."
-            )
-            raise LifecycleError("Workbench request failed." + advice) from exc
-        expected_status = 202 if method == "POST" else 200
-        if response.status_code != expected_status:
-            raise LifecycleError(
-                f"Workbench HTTP {response.status_code}; expected {expected_status}. "
-                "Check authentication/permissions (401/403), endpoint and resource "
-                "visibility (404), current state (409/412), or throttling (429). "
-                "For a submitted action, check status before retrying."
-            )
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise LifecycleError(
-                "Workbench returned invalid JSON; check endpoint/API compatibility. "
-                "If an action was submitted, check status before retrying."
-            ) from exc
-        if not isinstance(data, dict):
-            raise LifecycleError("Workbench response must be a JSON object.")
-        return data, response.headers
-
-    def items(self, path, **filters):
-        """Yield every collection item, rejecting malformed or looping pages.
-
-        Args:
-            path: Encoded collection path.
-            **filters: Documented query filters.
-
-        Yields:
-            Resource dictionaries from every response page.
-
-        Raises:
-            LifecycleError: Invalid collection or repeated pagination token.
-        """
-        params = {**filters, "limit": 100}
-        seen = set()
-        while True:
-            data, headers = self.request("GET", path, params=params)
-            items = data.get("items")
-            if not isinstance(items, list) or any(
-                not isinstance(x, dict) for x in items
-            ):
-                raise LifecycleError("Workbench collection is missing valid items.")
-            yield from items
-            token = headers.get("opc-next-page")
-            if not token:
-                return
-            if token in seen:
-                raise LifecycleError("Workbench repeated a pagination token.")
-            seen.add(token)
-            params = {**params, "page": token}
+    def sdk_arguments(self):
+        """Return the named resource identifiers required by ClusterClient."""
+        return {
+            "ai_data_platform_id": self.instance_id,
+            "workspace_key": self.workspace_key,
+            "cluster_key": self.cluster_key,
+        }
 
 
 def resolve_compartment(identity, tenancy_id, value):
@@ -182,7 +91,8 @@ def resolve_compartment(identity, tenancy_id, value):
 
 def discover(
     control,
-    workbench,
+    workspaces_client,
+    clusters_client,
     compartment_id,
     name,
     *,
@@ -195,7 +105,8 @@ def discover(
 
     Args:
         control: OCI AiDataPlatformClient.
-        workbench: WorkbenchClient.
+        workspaces_client: Generated WorkspaceClient.
+        clusters_client: Generated ClusterClient.
         compartment_id: Resolved compartment OCID.
         name: Exact, case-sensitive cluster display name.
         instance_id: Optional instance OCID filter.
@@ -227,27 +138,33 @@ def discover(
         ).data
     matches = []
     for instance in instances:
-        base = f"/{API_VERSION}/aiDataPlatforms/{_segment(instance.id)}/workspaces"
+        _validate_resource_key(instance.id)
         workspaces = (
-            [{"key": workspace_key}] if workspace_key else workbench.items(base)
+            [models.WorkspaceSummary(key=workspace_key)]
+            if workspace_key
+            else oci.pagination.list_call_get_all_results(
+                workspaces_client.list_workspaces, instance.id
+            ).data
         )
         for workspace in workspaces:
-            if workspace_name and workspace.get("displayName") != workspace_name:
+            if workspace_name and workspace.display_name != workspace_name:
                 continue
-            key = workspace.get("key")
+            key = workspace.key
             if not isinstance(key, str) or not key:
                 raise LifecycleError("Workspace response is missing its key.")
-            filters = {"displayName": name}
+            _validate_resource_key(key)
+            filters = {"display_name": name}
             if cluster_type:
                 filters["type"] = cluster_type
-            for cluster in workbench.items(
-                f"{base}/{_segment(key)}/clusters", **filters
-            ):
-                if cluster.get("displayName") != name:
+            clusters = oci.pagination.list_call_get_all_results(
+                clusters_client.list_clusters, instance.id, key, **filters
+            ).data
+            for cluster in clusters:
+                if cluster.display_name != name:
                     continue
-                if cluster_type and cluster.get("type") != cluster_type:
+                if cluster_type and cluster.type != cluster_type:
                     continue
-                cluster_key = cluster.get("key")
+                cluster_key = cluster.key
                 if not isinstance(cluster_key, str) or not cluster_key:
                     raise LifecycleError("Cluster response is missing its key.")
                 matches.append(Target(instance.id, key, cluster_key))
@@ -258,6 +175,35 @@ def discover(
             "or --cluster-type when necessary."
         )
     return matches[0]
+
+
+def _submit_action(client, target, action, headers):
+    """Submit one typed SDK action and preserve uncertain-outcome diagnostics."""
+    options = {
+        **target.sdk_arguments,
+        "retry_strategy": oci.retry.NoneRetryStrategy(),
+        "opc_retry_token": str(uuid4()),
+    }
+    if headers.get("etag"):
+        options["if_match"] = headers["etag"]
+    try:
+        if action == "start":
+            result = client.start_cluster(
+                start_cluster_details=models.StartClusterDetails(), **options
+            )
+        else:
+            result = client.stop_cluster(
+                stop_cluster_details=models.StopClusterDetails(), **options
+            )
+    except oci.exceptions.RequestException as exc:
+        raise LifecycleError(
+            "Submission outcome is unknown; check status before retrying."
+        ) from exc
+    if result.status != 202:
+        raise LifecycleError(
+            "Unexpected action response; check status before retrying."
+        )
+    return result.headers
 
 
 def change_state(
@@ -273,7 +219,7 @@ def change_state(
     """Inspect, optionally submit, and optionally wait for a lifecycle change.
 
     Args:
-        client: WorkbenchClient.
+        client: Generated ClusterClient.
         target: Resolved Target.
         action: start, stop, or status.
         dry_run: Inspect without submitting a mutation.
@@ -288,8 +234,8 @@ def change_state(
         raise LifecycleError("Unsupported lifecycle action.")
     if wait_timeout <= 0 or poll_interval <= 0:
         raise LifecycleError("Polling timeout and interval must be positive.")
-    data, headers = client.request("GET", target.path)
-    state = data.get("state")
+    response = client.get_cluster(**target.sdk_arguments)
+    state = response.data.state
     print(
         json.dumps(
             {
@@ -328,11 +274,7 @@ def change_state(
         print(f"Dry run: {plan}.")
         return
     if state == origin:
-        _, result_headers = client.request(
-            "POST",
-            target.path + f"/actions/{action}",
-            etag=headers.get("etag"),
-        )
+        result_headers = _submit_action(client, target, action, response.headers)
         print(f"{action.capitalize()} accepted; completion has not yet been verified.")
         # Only explicitly selected tracing metadata is printed, never response bodies.
         print(
@@ -351,8 +293,7 @@ def change_state(
         return
     deadline = time.monotonic() + wait_timeout
     while time.monotonic() < deadline:
-        data, _ = client.request("GET", target.path)
-        state = data.get("state")
+        state = client.get_cluster(**target.sdk_arguments).data.state
         if state == desired:
             print(f"Completed: {desired}.")
             return
@@ -364,6 +305,14 @@ def change_state(
     raise LifecycleError(
         "Wait timed out; the cloud operation is not cancelled. Check status."
     )
+
+
+def _managed_client(resources, client_type, config, options):
+    """Register each SDK session immediately so partial setup failures close it."""
+    client = client_type(config, **options)
+    client.base_client.session.max_redirects = 0
+    resources.callback(client.base_client.session.close)
+    return client
 
 
 def _execute(args):
@@ -391,14 +340,32 @@ def _execute(args):
             "timeout": (10, 30),
             "retry_strategy": oci.retry.NoneRetryStrategy(),
         }
-        identity = oci.identity.IdentityClient(config, **client_options)
-        control = oci.ai_data_platform.AiDataPlatformClient(config, **client_options)
-        compartment = resolve_compartment(identity, config["tenancy"], args.compartment)
-        with requests.Session() as session:
-            client = WorkbenchClient(args.endpoint, signer, session)
+        sdk_options = dict(client_options)
+        if args.endpoint:
+            sdk_options["service_endpoint"] = args.endpoint
+        with ExitStack() as resources:
+            identity = _managed_client(
+                resources, oci.identity.IdentityClient, config, client_options
+            )
+            control = _managed_client(
+                resources,
+                oci.ai_data_platform.AiDataPlatformClient,
+                config,
+                client_options,
+            )
+            workspaces_client = _managed_client(
+                resources, WorkspaceClient, config, sdk_options
+            )
+            clusters_client = _managed_client(
+                resources, ClusterClient, config, sdk_options
+            )
+            compartment = resolve_compartment(
+                identity, config["tenancy"], args.compartment
+            )
             target = discover(
                 control,
-                client,
+                workspaces_client,
+                clusters_client,
                 compartment,
                 args.cluster_name,
                 instance_id=args.instance_id,
@@ -407,7 +374,7 @@ def _execute(args):
                 cluster_type=args.cluster_type,
             )
             change_state(
-                client,
+                clusters_client,
                 target,
                 args.action,
                 dry_run=args.dry_run,
@@ -420,7 +387,8 @@ def _execute(args):
         print(f"Error: {exc}", file=sys.stderr)
     except oci.exceptions.ServiceError as exc:
         print(
-            f"OCI HTTP {exc.status}; check region, visibility and IAM permissions.",
+            f"OCI HTTP {exc.status}; check region, visibility, permissions and state. "
+            "If an action was submitted, check status before retrying.",
             file=sys.stderr,
         )
     except Exception as exc:  # pylint: disable=broad-exception-caught

@@ -17,8 +17,34 @@ Keep local settings in the root `.env` (excluded from Git), using
 
 ```bash
 conda activate codex-4-oci-aidp
+mkdir -p .deps
+curl -fL 'https://github.com/oracle-samples/aidataplatform-sdk/releases/download/v4.2.1/aidp-python-client-4.2.1.zip' \
+  -o .deps/aidp-python-client-4.2.1.zip
+echo '9cd99a1196b89e9a3354f8b9111ce59412efb23c4888e56126e3a2ca2364c3ba  .deps/aidp-python-client-4.2.1.zip' | shasum -a 256 -c -
+unzip -o .deps/aidp-python-client-4.2.1.zip '*.whl' -d .deps
 python -m pip install -r requirements-dev.txt
 ```
+
+Run these commands from the repository root. Stop if the checksum check fails.
+Oracle distributes the Python SDK as a wheel inside the release ZIP, so download
+and extract it before installing requirements. `.deps/` is ignored by Git.
+For runtime-only installation, use `requirements.txt` in the final command.
+
+## Dependencies
+
+| Package | Version | Purpose |
+| --- | --- | --- |
+| [Oracle AI DP SDK](https://github.com/oracle-samples/aidataplatform-sdk) (`aidp-python-client`) | 4.2.1 | Workspace and cluster operations through generated Python clients |
+| `oci` | 2.165.1 | OCI configuration, signing, compartment and AI DP instance discovery |
+| `python-dotenv` | 1.2.3 | Shared `.env` settings |
+| `black` | 26.5.1 | Development: code formatting |
+| `pylint` | 4.0.8 | Development: static analysis |
+| `pytest` | 9.1.1 | Development: automated tests |
+
+AI DP SDK 4.2.1 requires `oci>=2.165.0,<2.166`; the project pins a compatible
+version. The [Oracle release](https://github.com/oracle-samples/aidataplatform-sdk/releases/tag/v4.2.1)
+provides the package and checksum. No direct `requests` dependency or OCI CLI
+installation is needed. Transitive dependencies are resolved by pip.
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for contributor commands.
 
@@ -26,4 +52,3 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for contributor commands.
 
 * [Cluster lifecycle](cluster_lifecycle/README.md): discover, inspect, start and
   stop a Workbench cluster using Python, OCI authentication and `.env` settings.
-

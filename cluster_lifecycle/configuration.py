@@ -2,7 +2,7 @@
 Author: L. Saetta
 Date last modified: 2026-09-15
 License: MIT
-Description: Load lifecycle settings and derive regional Workbench endpoints.
+Description: Load lifecycle settings and validate optional Workbench endpoint overrides.
 """
 
 import argparse
@@ -11,11 +11,9 @@ import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
-import oci
 from dotenv import dotenv_values
 
 DEFAULT_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
-ENDPOINT_TEMPLATE = "https://datalake.{region}.oci.{secondLevelDomain}"
 
 
 def positive_int(value):
@@ -42,22 +40,6 @@ def endpoint_origin(value):
     return value.rstrip("/")
 
 
-def regional_endpoint(region):
-    """Resolve Oracle's ClusterClient endpoint template using OCI realm metadata.
-
-    Args:
-        region: OCI region identifier, for example eu-frankfurt-1.
-
-    Returns:
-        Workbench HTTPS service origin for that region and realm.
-    """
-    if not re.fullmatch(r"[a-z]+(?:-[a-z0-9]+)+-\d+", region):
-        raise argparse.ArgumentTypeError("REGION must be an OCI region identifier.")
-    return oci.regions.endpoint_for(
-        "cluster", region=region, service_endpoint_template=ENDPOINT_TEMPLATE
-    )
-
-
 def _boolean(value):
     if value.lower() in ("true", "1", "yes"):
         return True
@@ -73,7 +55,7 @@ def parse_settings(argv=None):
         argv: Optional argument list; defaults to process arguments.
 
     Returns:
-        Validated argparse namespace, including the resolved endpoint.
+        Validated settings; a missing endpoint lets the SDK resolve the region.
 
     Raises:
         SystemExit: Invalid or missing configuration (exit code 2).
@@ -149,8 +131,9 @@ def parse_settings(argv=None):
             parser.error("CLUSTER_TYPE must be USER or AI_COMPUTE.")
         if args.workspace_key and args.workspace_name:
             parser.error("Use either WORKSPACE_KEY or WORKSPACE_NAME, not both.")
-        derived = regional_endpoint(args.region)
-        args.endpoint = endpoint_origin(args.endpoint) if args.endpoint else derived
+        if not re.fullmatch(r"[a-z]+(?:-[a-z0-9]+)+-\d+", args.region):
+            parser.error("REGION must be an OCI region identifier.")
+        args.endpoint = endpoint_origin(args.endpoint) if args.endpoint else None
         if not env_path.is_file() and initial.env_file != str(DEFAULT_ENV_FILE):
             parser.error("The explicitly selected .env file does not exist.")
     except (argparse.ArgumentTypeError, ValueError) as exc:

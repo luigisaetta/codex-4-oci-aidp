@@ -1,4 +1,6 @@
 # Direct runtime dependencies verified in the project Conda environment.
-oci==2.186.0
-requests==2.34.2
+# Download the official SDK wheel first; see README.md.
+./.deps/aidp_python_client-4.2.1-py3-none-any.whl
+# Required by aidp-python-client 4.2.1: oci>=2.165.0,<2.166.
+oci==2.165.1
 python-dotenv==1.2.3
