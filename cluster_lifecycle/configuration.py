@@ -6,12 +6,9 @@ Description: Load lifecycle settings and validate optional Workbench endpoint ov
 """
 
 import argparse
-import os
-import re
 from pathlib import Path
-from urllib.parse import urlsplit
 
-from dotenv import dotenv_values
+from aidp_common.settings import connection_parser, validate_connection
 
 DEFAULT_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
@@ -25,19 +22,6 @@ def positive_int(value):
     if number <= 0:
         raise argparse.ArgumentTypeError("Value must be a positive integer.")
     return number
-
-
-def endpoint_origin(value):
-    """Validate an HTTPS origin without credentials, paths or query parameters."""
-    parsed = urlsplit(value)
-    if (
-        parsed.scheme != "https"
-        or not parsed.hostname
-        or any((parsed.username, parsed.password, parsed.query, parsed.fragment))
-        or parsed.path not in ("", "/")
-    ):
-        raise argparse.ArgumentTypeError("Endpoint must be an HTTPS service origin.")
-    return value.rstrip("/")
 
 
 def _boolean(value):
@@ -60,22 +44,9 @@ def parse_settings(argv=None):
     Raises:
         SystemExit: Invalid or missing configuration (exit code 2).
     """
-    bootstrap = argparse.ArgumentParser(add_help=False)
-    bootstrap.add_argument("--env-file", default=str(DEFAULT_ENV_FILE))
-    initial, _ = bootstrap.parse_known_args(argv)
-    env_path = Path(initial.env_file).expanduser()
-    parser = argparse.ArgumentParser(
-        parents=[bootstrap], description="Inspect, start or stop an OCI AI DP cluster."
+    parser, setting, _ = connection_parser(
+        argv, "Inspect, start or stop an OCI AI DP cluster.", DEFAULT_ENV_FILE
     )
-    try:
-        values = {**dotenv_values(env_path, interpolate=False), **os.environ}
-    except OSError:
-        parser.error("Cannot read the selected .env file.")
-
-    def setting(name, default=None):
-        value = values.get(name)
-        return value.strip() if value and value.strip() else default
-
     parser.add_argument(
         "action",
         nargs="?",
@@ -83,16 +54,10 @@ def parse_settings(argv=None):
         default=setting("ACTION", "status"),
     )
     fields = {
-        "compartment": ("COMPARTMENT", None),
         "cluster-name": ("CLUSTER_NAME", None),
-        "config-file": ("OCI_CONFIG_FILE", "~/.oci/config"),
-        "profile": ("OCI_PROFILE", "DEFAULT"),
-        "region": ("REGION", "eu-frankfurt-1"),
-        "instance-id": ("AIDP_INSTANCE_ID", None),
         "workspace-key": ("WORKSPACE_KEY", None),
         "workspace-name": ("WORKSPACE_NAME", None),
         "cluster-type": ("CLUSTER_TYPE", None),
-        "endpoint": ("AIDP_ENDPOINT", None),
     }
     for flag, (variable, default) in fields.items():
         parser.add_argument(
@@ -119,23 +84,15 @@ def parse_settings(argv=None):
         for name in ("wait", "dry_run"):
             value = getattr(args, name)
             setattr(args, name, _boolean(value) if isinstance(value, str) else value)
-        for name in ("compartment", "cluster_name", "profile", "config_file", "region"):
-            if not getattr(args, name) or not getattr(args, name).strip():
-                parser.error(
-                    f"Set {name.upper()} in {env_path.name} "
-                    f"or pass --{name.replace('_', '-')}."
-                )
+        validate_connection(args, parser)
+        if not args.cluster_name or not args.cluster_name.strip():
+            parser.error("Set CLUSTER_NAME in .env or pass --cluster-name.")
         if args.action not in ("start", "stop", "status"):
             parser.error("ACTION must be start, stop or status.")
         if args.cluster_type not in (None, "USER", "AI_COMPUTE"):
             parser.error("CLUSTER_TYPE must be USER or AI_COMPUTE.")
         if args.workspace_key and args.workspace_name:
             parser.error("Use either WORKSPACE_KEY or WORKSPACE_NAME, not both.")
-        if not re.fullmatch(r"[a-z]+(?:-[a-z0-9]+)+-\d+", args.region):
-            parser.error("REGION must be an OCI region identifier.")
-        args.endpoint = endpoint_origin(args.endpoint) if args.endpoint else None
-        if not env_path.is_file() and initial.env_file != str(DEFAULT_ENV_FILE):
-            parser.error("The explicitly selected .env file does not exist.")
     except (argparse.ArgumentTypeError, ValueError) as exc:
         parser.error(str(exc))
     return args

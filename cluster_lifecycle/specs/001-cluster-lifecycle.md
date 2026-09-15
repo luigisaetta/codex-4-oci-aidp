@@ -157,3 +157,12 @@ Installing the root requirements-dev.txt and running CLI help also succeeded.
 The configured target's read access and status path are verified. Mutation
 permissions and live start/stop behavior remain unverified.
 No exact Astra model identifier is available in the session metadata.
+
+## Shared infrastructure extraction (2026-09-15)
+
+Authentication, managed clients, connection settings, compartment and active
+instance discovery, banners and sanitized diagnostics now reside in `aidp_common`.
+Lifecycle-specific options and operations remain here. Preserve all existing
+behavior, especially timestamp compatibility, ETags and no-retry mutations.
+See `../../aidp_common/specs/001-shared-infrastructure.md` for the contract and
+`../../catalog_tree/specs/001-catalog-tree.md` for final regression evidence.

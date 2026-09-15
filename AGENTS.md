@@ -68,6 +68,7 @@ Description: Brief description of this file's responsibilities.
 
 * Use accurate Google-style docstrings for public functions and classes, including relevant arguments, return values, and exceptions.
 * Keep configuration, OCI service interactions, application logic, and command-line entry points separate where practical.
+* Reuse `aidp_common/` for connection settings, authentication, SDK initialization and shared discovery. Keep feature operations in their own folders; feature modules must not import each other.
 * Provide actionable errors and meaningful exit codes. Validate required inputs before starting remote changes.
 * Shell scripts must document their purpose, prerequisites, inputs, side effects, and usage. Quote variables, handle failures explicitly, and state the supported shell.
 * Keep notebooks focused, restartable from a clean kernel, and free of credentials or sensitive outputs. Move reusable logic into Python modules.

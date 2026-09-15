@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-15: Add a read-only catalog tree command with paginated schema/volume
+  discovery and dedicated documentation. Extract shared connection settings,
+  API-key authentication, SDK initialization and discovery into `aidp_common`.
+
 * 2026-09-15: Preserve Workbench timestamp values when the service returns
   numeric dates, avoiding an OCI SDK deserialization TypeError during discovery.
   Add execution-stage and code-location diagnostics for unexpected errors.

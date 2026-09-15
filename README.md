@@ -34,7 +34,7 @@ For runtime-only installation, use `requirements.txt` in the final command.
 
 | Package | Version | Purpose |
 | --- | --- | --- |
-| [Oracle AI DP SDK](https://github.com/oracle-samples/aidataplatform-sdk) (`aidp-python-client`) | 4.2.1 | Workspace and cluster operations through generated Python clients |
+| [Oracle AI DP SDK](https://github.com/oracle-samples/aidataplatform-sdk) (`aidp-python-client`) | 4.2.1 | Workspace, cluster, catalog, schema and volume operations through generated Python clients |
 | `oci` | 2.165.1 | OCI configuration, signing, compartment and AI DP instance discovery |
 | `python-dotenv` | 1.2.3 | Shared `.env` settings |
 | `black` | 26.5.1 | Development: code formatting |
@@ -52,3 +52,8 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for contributor commands.
 
 * [Cluster lifecycle](cluster_lifecycle/README.md): discover, inspect, start and
   stop a Workbench cluster using Python, OCI authentication and `.env` settings.
+* [Catalog tree](catalog_tree/README.md): list a catalog's visible schemas and
+  volumes as a hierarchical tree.
+
+Both features reuse [aidp_common](aidp_common/README.md) for authentication,
+connection settings, SDK initialization and resource discovery.

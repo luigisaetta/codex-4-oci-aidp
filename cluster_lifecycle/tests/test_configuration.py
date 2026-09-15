@@ -14,13 +14,14 @@ import oci
 import pytest
 
 import configuration
+from aidp_common import settings as shared_settings
 import cluster_lifecycle as lifecycle
 
 
 @pytest.fixture(name="env_file")
 def fixture_env_file(tmp_path, monkeypatch):
     """Isolate settings from the user's dotenv and process environment."""
-    monkeypatch.setattr(configuration.os, "environ", {})
+    monkeypatch.setattr(shared_settings.os, "environ", {})
     path = tmp_path / ".env"
     path.write_text("COMPARTMENT=demo\nCLUSTER_NAME=cluster\n", encoding="utf-8")
     return path
@@ -47,7 +48,7 @@ def test_config_precedence_and_boolean_overrides(env_file, monkeypatch):
         encoding="utf-8",
     )
     process_env = {"COMPARTMENT": "environment"}
-    monkeypatch.setattr(configuration.os, "environ", process_env)
+    monkeypatch.setattr(shared_settings.os, "environ", process_env)
     args = configuration.parse_settings(["--env-file", str(env_file)])
     assert args.compartment == "environment"
     assert args.wait and args.dry_run

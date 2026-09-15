@@ -6,33 +6,34 @@ Description: Discover and start or stop an OCI AI DP Workbench cluster.
 """
 
 import json
-import os
 import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from contextlib import ExitStack
 from uuid import uuid4
+from pathlib import Path
 
+# Direct file execution puts the feature folder, not the repository, on sys.path.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# Imports follow the path bootstrap required by direct script execution.
+# pylint: disable=wrong-import-position
 import oci
 from aidp_python_client.aidataplatform_dp import ClusterClient, WorkspaceClient, models
 
 from configuration import parse_settings
 
-
-class LifecycleError(Exception):
-    """An actionable discovery, API, or lifecycle failure."""
-
-
-def _validate_resource_key(value):
-    """Reject path separators that OCI 2.165.1 does not escape in path parameters."""
-    if (
-        not isinstance(value, str)
-        or not value.strip()
-        or any(character in value for character in ("/", "\\"))
-        or value in (".", "..")
-    ):
-        raise LifecycleError("Resource keys must be nonempty single path segments.")
+from aidp_common.connection import (
+    AidpError as LifecycleError,
+    validate_resource_key,
+    load_auth,
+    managed_client,
+    resolve_compartment,
+    list_instances,
+)
+from aidp_common.output import print_banner, report_unexpected_error
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,7 @@ class Target:
 
     def __post_init__(self):
         for value in (self.instance_id, self.workspace_key, self.cluster_key):
-            _validate_resource_key(value)
+            validate_resource_key(value)
 
     @property
     def sdk_arguments(self):
@@ -55,38 +56,6 @@ class Target:
             "workspace_key": self.workspace_key,
             "cluster_key": self.cluster_key,
         }
-
-
-def resolve_compartment(identity, tenancy_id, value):
-    """Resolve an OCID or an exact accessible active compartment name.
-
-    Args:
-        identity: OCI IdentityClient.
-        tenancy_id: Root tenancy OCID from the selected profile.
-        value: Compartment name, compartment OCID, or root tenancy OCID.
-
-    Returns:
-        The selected compartment OCID.
-
-    Raises:
-        LifecycleError: No unique name match is visible.
-    """
-    if value.startswith(("ocid1.compartment.", "ocid1.tenancy.")):
-        return value
-    compartments = oci.pagination.list_call_get_all_results(
-        identity.list_compartments,
-        tenancy_id,
-        compartment_id_in_subtree=True,
-        access_level="ACCESSIBLE",
-        lifecycle_state="ACTIVE",
-    ).data
-    matches = [item.id for item in compartments if item.name == value]
-    if len(matches) != 1:
-        raise LifecycleError(
-            f"Compartment name has {len(matches)} visible matches; supply its OCID. "
-            "For the root compartment, supply the tenancy OCID."
-        )
-    return matches[0]
 
 
 def discover(
@@ -120,25 +89,10 @@ def discover(
     Raises:
         LifecycleError: Missing or ambiguous target, or invalid instance scope.
     """
-    if instance_id:
-        instance = control.get_ai_data_platform(instance_id).data
-        if (
-            instance.compartment_id != compartment_id
-            or instance.lifecycle_state != "ACTIVE"
-        ):
-            raise LifecycleError(
-                "Selected instance must be active in the requested compartment."
-            )
-        instances = [instance]
-    else:
-        instances = oci.pagination.list_call_get_all_results(
-            control.list_ai_data_platforms,
-            compartment_id=compartment_id,
-            lifecycle_state="ACTIVE",
-        ).data
+    instances = list_instances(control, compartment_id, instance_id)
     matches = []
     for instance in instances:
-        _validate_resource_key(instance.id)
+        validate_resource_key(instance.id)
         workspaces = (
             [models.WorkspaceSummary(key=workspace_key)]
             if workspace_key
@@ -152,7 +106,7 @@ def discover(
             key = workspace.key
             if not isinstance(key, str) or not key:
                 raise LifecycleError("Workspace response is missing its key.")
-            _validate_resource_key(key)
+            validate_resource_key(key)
             filters = {"display_name": name}
             if cluster_type:
                 filters["type"] = cluster_type
@@ -307,73 +261,33 @@ def change_state(
     )
 
 
-def _managed_client(
-    resources, client_type, config, options, *, preserve_timestamps=False
-):
-    """Register each SDK session immediately so partial setup failures close it."""
-    client = client_type(config, **options)
-    if preserve_timestamps:
-        # Some Workbench deployments return numeric timestamps instead of ISO text.
-        # Lifecycle commands never interpret dates: retain values without guessing
-        # units. Copy the mapping to avoid changing other SDK clients globally.
-        client.base_client.type_mappings = {
-            **client.base_client.type_mappings,
-            "datetime": object,
-        }
-    client.base_client.session.max_redirects = 0
-    resources.callback(client.base_client.session.close)
-    return client
-
-
 def _execute(args):
     """Execute validated settings, returning 0 on success or 1 on failure."""
     stage = "loading OCI configuration"
     try:
-        config = oci.config.from_file(
-            os.path.expanduser(args.config_file), args.profile
-        )
-        if args.region:
-            config["region"] = args.region
-        oci.config.validate_config(config)
-        if config.get("security_token_file"):
-            raise LifecycleError(
-                "This script supports API-key profiles; select an API-key profile."
-            )
-        stage = "loading the API signing key"
-        signer = oci.signer.Signer(
-            tenancy=config["tenancy"],
-            user=config["user"],
-            fingerprint=config["fingerprint"],
-            private_key_file_location=os.path.expanduser(config["key_file"]),
-            pass_phrase=config.get("pass_phrase"),
-        )
-        client_options = {
-            "signer": signer,
-            "timeout": (10, 30),
-            "retry_strategy": oci.retry.NoneRetryStrategy(),
-        }
+        config, client_options = load_auth(args)
         sdk_options = dict(client_options)
         if args.endpoint:
             sdk_options["service_endpoint"] = args.endpoint
         with ExitStack() as resources:
             stage = "initializing SDK clients"
-            identity = _managed_client(
+            identity = managed_client(
                 resources, oci.identity.IdentityClient, config, client_options
             )
-            control = _managed_client(
+            control = managed_client(
                 resources,
                 oci.ai_data_platform.AiDataPlatformClient,
                 config,
                 client_options,
             )
-            workspaces_client = _managed_client(
+            workspaces_client = managed_client(
                 resources,
                 WorkspaceClient,
                 config,
                 sdk_options,
                 preserve_timestamps=True,
             )
-            clusters_client = _managed_client(
+            clusters_client = managed_client(
                 resources,
                 ClusterClient,
                 config,
@@ -418,33 +332,12 @@ def _execute(args):
     except Exception as exc:  # pylint: disable=broad-exception-caught
         # Redact third-party errors at the CLI boundary.
         # Third-party exceptions can contain config values or signed request data.
-        trace = exc.__traceback__
-        while trace.tb_next:
-            trace = trace.tb_next
-        location = trace.tb_frame.f_code
-        print(
-            f"Error ({type(exc).__name__}) while {stage}. "
-            f"Location: {os.path.basename(location.co_filename)}:"
-            f"{trace.tb_lineno} ({location.co_name}). "
-            "Exception details omitted to protect credentials and response data.",
-            file=sys.stderr,
-        )
+        report_unexpected_error(exc, stage)
     return 1
 
 
-def _print_banner(operation, timestamp, elapsed=None):
-    phase = "START" if elapsed is None else "END"
-    lines = [
-        f"### OCI AI DP cluster lifecycle | {phase}",
-        f"### Operation    : {operation}",
-        f"### {phase.title() + ' time':13}: {timestamp.isoformat(timespec='seconds')}",
-    ]
-    if elapsed is not None:
-        lines.append(f"### Elapsed time : {elapsed:.3f} seconds")
-    border = "#" * 72
-    print("\n".join([border, *lines, border]), flush=True)
-
-
+# Each CLI owns its exception boundary and clock for independent execution.
+# pylint: disable=duplicate-code
 def main(argv=None):
     """Run an operation with UTC timestamps and monotonic elapsed timing.
 
@@ -458,7 +351,7 @@ def main(argv=None):
     args = parse_settings(argv)
     operation = args.action.upper() + (" (DRY RUN)" if args.dry_run else "")
     started = time.monotonic()
-    _print_banner(operation, datetime.now(timezone.utc))
+    print_banner(operation, datetime.now(timezone.utc))
     try:
         return _execute(args)
     except KeyboardInterrupt:
@@ -468,7 +361,7 @@ def main(argv=None):
         )
         return 130
     finally:
-        _print_banner(
+        print_banner(
             operation, datetime.now(timezone.utc), elapsed=time.monotonic() - started
         )
 
