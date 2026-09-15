@@ -1,0 +1,4 @@
+# Direct runtime dependencies verified in the project Conda environment.
+oci==2.186.0
+requests==2.34.2
+python-dotenv==1.2.3

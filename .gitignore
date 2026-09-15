@@ -1,0 +1,10 @@
+# Local Python artifacts and credentials must not enter version control.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+.env.*
+!.env.example
+.oci/
+*.pem
+*.key

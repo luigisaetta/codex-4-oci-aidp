@@ -1,0 +1,23 @@
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.pytest.ini_options]
+testpaths = ["cluster_lifecycle/tests"]
+pythonpath = ["cluster_lifecycle"]
+addopts = "--strict-markers"
+
+[tool.pylint.main]
+py-version = "3.10"
+init-hook = "import sys; sys.path.insert(0, 'cluster_lifecycle')"
+persistent = false
+
+[tool.pylint.format]
+max-line-length = 88
+
+[tool.pylint.design]
+# Explicit CLI/service parameters keep the operations visible for human review.
+max-args = 10
+max-locals = 25
+max-branches = 18
+max-statements = 70

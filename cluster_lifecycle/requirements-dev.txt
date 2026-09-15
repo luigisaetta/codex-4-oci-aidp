@@ -1,0 +1,4 @@
+-r requirements.txt
+black==26.5.1
+pylint==4.0.8
+pytest==9.1.1

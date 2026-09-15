@@ -108,7 +108,7 @@ Separate observations from assumptions. Do not generalize from a single successf
 
 ## Testing and verification
 
-Use proportionate automated tests for meaningful behavior, preferably with `pytest` for Python. Unit tests must run without live cloud access or credentials; mock service clients or use small local fixtures. Cover configuration validation, relevant failure paths, and rerun behavior where applicable.
+Use proportionate automated tests for meaningful behavior with `pytest` for Python. Format all Python code with Black and run Pylint and pytest before considering a Python change complete. Keep tool configuration and development dependencies documented. Unit tests must run without live cloud access or credentials; mock service clients or use small local fixtures. Cover configuration validation, relevant failure paths, and rerun behavior where applicable.
 
 Keep live OCI integration tests explicit and opt-in. Document their prerequisites, target resources, expected costs, and cleanup. Never provision resources or upload data as a hidden side effect of ordinary test collection or the default unit test suite.
 
