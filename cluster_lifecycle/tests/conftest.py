@@ -6,6 +6,7 @@ Description: Offline SDK clients and HTTP fixtures; no OCI credentials or networ
 """
 
 import json
+from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -13,6 +14,8 @@ import oci
 import pytest
 from oci._vendor import requests
 from aidp_python_client.aidataplatform_dp import ClusterClient, WorkspaceClient
+
+import cluster_lifecycle as lifecycle
 
 
 @pytest.fixture(autouse=True)
@@ -57,17 +60,20 @@ def fixture_sdk_clients():
         "timeout": (10, 30),
     }
     config = {"region": "eu-frankfurt-1"}
-    clusters = ClusterClient(config, **options)
-    workspaces = WorkspaceClient(config, **options)
-    cluster_http = Mock()
-    workspace_http = Mock()
-    clusters.base_client.session.request = cluster_http
-    workspaces.base_client.session.request = workspace_http
-    yield SimpleNamespace(
-        clusters=clusters,
-        workspaces=workspaces,
-        cluster_http=cluster_http,
-        workspace_http=workspace_http,
-    )
-    clusters.base_client.session.close()
-    workspaces.base_client.session.close()
+    with ExitStack() as resources:
+        clusters = lifecycle._managed_client(  # pylint: disable=protected-access
+            resources, ClusterClient, config, options, preserve_timestamps=True
+        )
+        workspaces = lifecycle._managed_client(  # pylint: disable=protected-access
+            resources, WorkspaceClient, config, options, preserve_timestamps=True
+        )
+        cluster_http = Mock()
+        workspace_http = Mock()
+        clusters.base_client.session.request = cluster_http
+        workspaces.base_client.session.request = workspace_http
+        yield SimpleNamespace(
+            clusters=clusters,
+            workspaces=workspaces,
+            cluster_http=cluster_http,
+            workspace_http=workspace_http,
+        )

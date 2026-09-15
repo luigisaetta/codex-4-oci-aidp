@@ -172,5 +172,5 @@ For an explicitly authorized live test, record a non-production cluster's
 initial state, inspect status and dry-run, then start/stop with waiting as
 appropriate. Record runtime/package versions, region, cluster type, sanitized
 outputs and final state in the specification. Restore the initial state only
-when authorized. Live validation is still pending; the instance-level default
+when authorized. Live start/stop validation is still pending; the instance-level default
 cluster is outside this feature's scope.

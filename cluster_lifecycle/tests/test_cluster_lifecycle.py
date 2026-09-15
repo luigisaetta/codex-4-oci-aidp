@@ -173,3 +173,47 @@ def test_sdk_region_and_override(sdk_clients):
         assert custom.base_client.endpoint == "https://example.invalid/20260430"
     finally:
         custom.base_client.session.close()
+
+
+@pytest.mark.parametrize(
+    "timestamp", [1750000000000, 1750000000, 1750000000.5, "2026-09-15T10:00:00Z", None]
+)
+def test_workbench_timestamps_remain_opaque(sdk_clients, http_response, timestamp):
+    """Listing and detail models preserve numeric, ISO and null timestamps."""
+    dates = {"timeCreated": timestamp, "timeUpdated": timestamp}
+    sdk_clients.cluster_http.side_effect = [
+        http_response({"items": [{"key": "cluster", "displayName": "demo", **dates}]}),
+        http_response({"state": "ACTIVE", **dates}),
+    ]
+    summaries = sdk_clients.clusters.list_clusters("instance", "workspace").data.items
+    assert summaries[0].time_created == timestamp
+    assert summaries[0].time_updated == timestamp
+    details = sdk_clients.clusters.get_cluster(**TARGET.sdk_arguments).data
+    assert details.time_created == timestamp
+    assert details.state == "ACTIVE"
+    sdk_clients.workspace_http.return_value = http_response(
+        {"items": [{"key": "workspace", **dates}]}
+    )
+    workspace = sdk_clients.workspaces.list_workspaces("instance").data.items[0]
+    assert workspace.time_created == timestamp
+
+
+def test_timestamp_workaround_is_client_local(sdk_clients, http_response):
+    """Reproduce the SDK failure and verify that its default mapping is unchanged."""
+    plain = lifecycle.ClusterClient(
+        {"region": "eu-frankfurt-1"},
+        signer=sdk_clients.clusters.base_client.signer,
+        retry_strategy=oci.retry.NoneRetryStrategy(),
+    )
+    try:
+        plain.base_client.session.request = Mock(
+            return_value=http_response(
+                {"items": [{"key": "cluster", "timeCreated": 1750000000000}]}
+            )
+        )
+        with pytest.raises(TypeError):
+            plain.list_clusters("instance", "workspace")
+        assert plain.base_client.type_mappings["datetime"] is not object
+        assert sdk_clients.clusters.base_client.type_mappings["datetime"] is object
+    finally:
+        plain.base_client.session.close()

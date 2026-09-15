@@ -307,9 +307,19 @@ def change_state(
     )
 
 
-def _managed_client(resources, client_type, config, options):
+def _managed_client(
+    resources, client_type, config, options, *, preserve_timestamps=False
+):
     """Register each SDK session immediately so partial setup failures close it."""
     client = client_type(config, **options)
+    if preserve_timestamps:
+        # Some Workbench deployments return numeric timestamps instead of ISO text.
+        # Lifecycle commands never interpret dates: retain values without guessing
+        # units. Copy the mapping to avoid changing other SDK clients globally.
+        client.base_client.type_mappings = {
+            **client.base_client.type_mappings,
+            "datetime": object,
+        }
     client.base_client.session.max_redirects = 0
     resources.callback(client.base_client.session.close)
     return client
@@ -317,6 +327,7 @@ def _managed_client(resources, client_type, config, options):
 
 def _execute(args):
     """Execute validated settings, returning 0 on success or 1 on failure."""
+    stage = "loading OCI configuration"
     try:
         config = oci.config.from_file(
             os.path.expanduser(args.config_file), args.profile
@@ -328,6 +339,7 @@ def _execute(args):
             raise LifecycleError(
                 "This script supports API-key profiles; select an API-key profile."
             )
+        stage = "loading the API signing key"
         signer = oci.signer.Signer(
             tenancy=config["tenancy"],
             user=config["user"],
@@ -344,6 +356,7 @@ def _execute(args):
         if args.endpoint:
             sdk_options["service_endpoint"] = args.endpoint
         with ExitStack() as resources:
+            stage = "initializing SDK clients"
             identity = _managed_client(
                 resources, oci.identity.IdentityClient, config, client_options
             )
@@ -354,14 +367,24 @@ def _execute(args):
                 client_options,
             )
             workspaces_client = _managed_client(
-                resources, WorkspaceClient, config, sdk_options
+                resources,
+                WorkspaceClient,
+                config,
+                sdk_options,
+                preserve_timestamps=True,
             )
             clusters_client = _managed_client(
-                resources, ClusterClient, config, sdk_options
+                resources,
+                ClusterClient,
+                config,
+                sdk_options,
+                preserve_timestamps=True,
             )
+            stage = "resolving the compartment"
             compartment = resolve_compartment(
                 identity, config["tenancy"], args.compartment
             )
+            stage = "discovering the Workbench cluster"
             target = discover(
                 control,
                 workspaces_client,
@@ -373,6 +396,7 @@ def _execute(args):
                 workspace_name=args.workspace_name,
                 cluster_type=args.cluster_type,
             )
+            stage = f"executing cluster {args.action}"
             change_state(
                 clusters_client,
                 target,
@@ -394,9 +418,15 @@ def _execute(args):
     except Exception as exc:  # pylint: disable=broad-exception-caught
         # Redact third-party errors at the CLI boundary.
         # Third-party exceptions can contain config values or signed request data.
+        trace = exc.__traceback__
+        while trace.tb_next:
+            trace = trace.tb_next
+        location = trace.tb_frame.f_code
         print(
-            f"Error ({type(exc).__name__}): check OCI SDK version, API-key profile, "
-            "key accessibility and network configuration.",
+            f"Error ({type(exc).__name__}) while {stage}. "
+            f"Location: {os.path.basename(location.co_filename)}:"
+            f"{trace.tb_lineno} ({location.co_name}). "
+            "Exception details omitted to protect credentials and response data.",
             file=sys.stderr,
         )
     return 1

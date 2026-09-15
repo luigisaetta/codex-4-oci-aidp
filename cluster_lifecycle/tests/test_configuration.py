@@ -286,8 +286,11 @@ def test_main_uses_selected_profile_region_and_workspace(env_file, monkeypatch):
     )
     discover = Mock(return_value=lifecycle.Target("instance", "workspace", "cluster"))
     monkeypatch.setattr(lifecycle, "discover", discover)
-    monkeypatch.setattr(lifecycle, "WorkspaceClient", Mock())
+    workspace_constructor = Mock()
+    workspace_constructor.return_value.base_client.type_mappings = {}
+    monkeypatch.setattr(lifecycle, "WorkspaceClient", workspace_constructor)
     clusters = Mock()
+    clusters.return_value.base_client.type_mappings = {}
     monkeypatch.setattr(lifecycle, "ClusterClient", clusters)
     change = Mock()
     monkeypatch.setattr(lifecycle, "change_state", change)

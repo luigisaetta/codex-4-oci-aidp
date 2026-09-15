@@ -51,6 +51,26 @@ contains reproducible download/install instructions and a dependency table.
 
 ## Execution behavior
 
+### Numeric timestamp compatibility
+
+Live status on 2026-09-15 revealed an integer `ClusterSummary.timeCreated` in
+the Workbench response. OCI 2.165.1 tries to parse it as an ISO string and raises
+TypeError. Lifecycle operations do not interpret these timestamps. For the two
+Workbench clients only, copy the SDK type mapping and map `datetime` to `object`
+to preserve timestamp values verbatim (numbers, strings or null). Keep typed
+resource models and normal OCI control-plane parsing. Do not guess timestamp
+units or patch installed SDK files or global mappings. Test numeric and ISO
+timestamps through the real SDK transport/deserialization path.
+
+Unexpected errors should identify the execution stage and the innermost code
+location without printing exception values, response bodies or local variables.
+
+Live verification: reproduced the TypeError in OCI's `__deserialize_datetime`
+while listing clusters, confirmed that `ClusterSummary.timeCreated` was an int,
+then reran status with this compatibility setting. It completed with exit code 0
+and state STOPPED on 2026-09-15. Resource identifiers and timestamp values were
+not recorded. Only read operations were executed; start/stop remains unverified.
+
 After validating settings, print a `###` start banner with the requested action,
 dry-run marker when applicable, and UTC start time. Always print a final banner
 with UTC end time and elapsed seconds measured by a monotonic clock, including
@@ -131,8 +151,9 @@ Verification environment: user-created Conda `codex-4-oci-aidp`, Python 3.11.0 o
 macOS, AI DP SDK 4.2.1 and OCI 2.165.1. Black, Pylint and pytest commands are in
 `DEVELOPMENT.md`. Tests use real generated clients with replaced HTTP transport
 and a fake signer; no local OCI config/keys are read and no live calls are made.
-Final checks: 57 pytest tests passed; Black check passed for all five Python
+Final checks: 63 pytest tests passed; Black check passed for all five Python
 files; Pylint completed at 10.00/10; pip check found no broken requirements.
 Installing the root requirements-dev.txt and running CLI help also succeeded.
-The target tenancy's permissions and deployed API compatibility remain unverified.
+The configured target's read access and status path are verified. Mutation
+permissions and live start/stop behavior remain unverified.
 No exact Astra model identifier is available in the session metadata.
