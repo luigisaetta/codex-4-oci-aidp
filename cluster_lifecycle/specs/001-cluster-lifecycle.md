@@ -4,19 +4,21 @@
 
 Provide a human-reviewable Python command that finds an existing OCI AI DP
 Workbench cluster by compartment and exact cluster name, then starts or stops it.
-Support read-only status and dry-run commands. Keep this feature, dependencies,
-tests, and documentation in `cluster_lifecycle/`.
+Support read-only status and dry-run commands. Keep feature code, tests, and
+documentation in `cluster_lifecycle/`. Share configuration and dependencies
+across features through root `.env`, `.env.example`, `requirements.txt`, and
+`requirements-dev.txt` files. Preserve existing local settings when moving them.
 
 The initial implementation uses API-key authentication from `~/.oci/config`
 and the key file referenced by the selected profile. It requires Python 3.10+
 and `oci`, `requests`, and `python-dotenv`. Development uses Black, Pylint and
-pytest. Exact direct dependencies are pinned in the feature's requirements
+pytest. Exact direct dependencies are pinned in the repository root requirements
 files. No separate AIDP SDK or OCI CLI installation is required.
 
 ## Inputs and discovery
 
 * Required settings: compartment OCID or exact name and cluster name. Read all
-  settings from the feature's `.env`, with environment variables and CLI flags
+  settings from the repository root `.env`, with environment variables and CLI flags
   taking precedence. Default action is `status`; default region is
   `eu-frankfurt-1`. The default `.env` location is independent of the working directory.
 * Derive the Workbench endpoint using the Oracle generated ClusterClient template

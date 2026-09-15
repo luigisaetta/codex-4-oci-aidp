@@ -50,7 +50,7 @@ The Conda environment name is `codex-4-oci-aidp`. The user will create it separa
 
 Use this environment for local Python development, notebooks, and checks. Activate it with `conda activate codex-4-oci-aidp`, or use `conda run -n codex-4-oci-aidp ...`. Do not silently fall back to globally installed packages. If the environment is unavailable, report which checks could not run.
 
-Keep Python dependencies in `requirements.txt` unless a specification establishes another packaging approach. Document the Python version, dependency constraints, OCI SDK and CLI versions, and target runtime used for verification. Do not assume Conda is available in OCI AI DP; provide setup instructions compatible with the selected remote runtime.
+Keep shared runtime dependencies in the repository root `requirements.txt` and development tools in the root `requirements-dev.txt`. Keep local settings in the root `.env` (ignored by Git), with safe placeholders in the root `.env.example`. Reuse these files across features instead of creating per-feature copies. Document the Python version, dependency constraints, OCI SDK and CLI versions, and target runtime used for verification. Do not assume Conda is available in OCI AI DP; provide setup instructions compatible with the selected remote runtime.
 
 ## Code, script, and notebook conventions
 

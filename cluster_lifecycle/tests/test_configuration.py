@@ -5,6 +5,7 @@ License: MIT
 Description: Pytest coverage for dotenv settings, endpoint derivation and SDK discovery.
 """
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -26,6 +27,8 @@ def fixture_env_file(tmp_path, monkeypatch):
 
 def test_frankfurt_defaults_and_dotenv_location(env_file, monkeypatch, tmp_path):
     """The default dotenv path works independently of the current directory."""
+    repository_root = Path(__file__).resolve().parents[2]
+    assert configuration.DEFAULT_ENV_FILE == repository_root / ".env"
     monkeypatch.setattr(configuration, "DEFAULT_ENV_FILE", env_file)
     monkeypatch.chdir(tmp_path.parent)
     args = configuration.parse_settings([])

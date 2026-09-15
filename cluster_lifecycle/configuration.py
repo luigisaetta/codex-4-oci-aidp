@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 import oci
 from dotenv import dotenv_values
 
-DEFAULT_ENV_FILE = Path(__file__).resolve().parent / ".env"
+DEFAULT_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 ENDPOINT_TEMPLATE = "https://datalake.{region}.oci.{secondLevelDomain}"
 
 

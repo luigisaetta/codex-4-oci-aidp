@@ -10,11 +10,11 @@ verification remains pending. See the [specification](specs/001-cluster-lifecycl
 
 ## Configure once in `.env`
 
-Edit `cluster_lifecycle/.env`, which is excluded from Git. A ready-to-fill file
-is provided locally; for a fresh checkout, copy [.env.example](.env.example):
+Edit the repository root `.env`, which is excluded from Git. A ready-to-fill file
+is provided locally; for a fresh checkout, copy [.env.example](../.env.example):
 
 ```bash
-cp cluster_lifecycle/.env.example cluster_lifecycle/.env
+cp .env.example .env
 ```
 
 Do not overwrite an existing configured file. Start with:
@@ -28,7 +28,7 @@ OCI_CONFIG_FILE=~/.oci/config
 OCI_PROFILE=DEFAULT
 ```
 
-The default `.env` is always located beside the script, regardless of the current
+The default `.env` is always located in the repository root, regardless of the current
 working directory. Use `--env-file /path/to/settings.env` for a different file.
 Values are literal: dotenv interpolation such as `${OTHER_VARIABLE}` is disabled.
 Use quotes around values containing spaces or `#` when needed.
@@ -67,11 +67,10 @@ Use the existing project Conda environment. From the repository root:
 
 ```bash
 conda activate codex-4-oci-aidp
-python -m pip install -r cluster_lifecycle/requirements-dev.txt
+python -m pip install -r requirements-dev.txt
 ```
 
-For execution only, install [requirements.txt](requirements.txt). Development
-requirements include runtime packages plus the quality tools below. Direct
+For execution only, install [requirements.txt](../requirements.txt). The shared root [development requirements](../requirements-dev.txt) include runtime packages plus the quality tools below. Direct
 versions are pinned; transitive dependencies are resolved by pip.
 
 | Package | Verified version | Purpose |
