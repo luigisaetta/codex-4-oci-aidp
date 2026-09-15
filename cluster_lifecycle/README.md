@@ -5,8 +5,7 @@ stop it. Python uses the OCI SDK for authentication and instance discovery, and
 signed REST requests for Workbench operations. No separate AIDP SDK or OCI CLI
 installation is required.
 
-**Status:** implemented and tested locally with mocked cloud calls. Live OCI AI DP
-verification remains pending. See the [specification](specs/001-cluster-lifecycle.md).
+Live OCI AI DP verification remains pending. See the [specification](specs/001-cluster-lifecycle.md).
 
 ## Configure once in `.env`
 
@@ -73,7 +72,7 @@ python -m pip install -r requirements-dev.txt
 For execution only, install [requirements.txt](../requirements.txt). The shared root [development requirements](../requirements-dev.txt) include runtime packages plus the quality tools below. Direct
 versions are pinned; transitive dependencies are resolved by pip.
 
-| Package | Verified version | Purpose |
+| Package | Pinned version | Purpose |
 | --- | --- | --- |
 | `oci` | 2.186.0 | OCI config, API-key signing, region resolution and discovery |
 | `requests` | 2.34.2 | Signed Workbench HTTP requests |
@@ -82,8 +81,7 @@ versions are pinned; transitive dependencies are resolved by pip.
 | `pylint` | 4.0.8 | Static code checks |
 | `pytest` | 9.1.1 | Offline test execution |
 
-Local verification uses Python 3.11.0 on macOS. Application code targets Python
-3.10+, but other Python versions and remote runtimes have not been verified.
+Use Python 3.11 or later.
 The same standalone script is intended for a Python-capable OCI AI DP runtime
 with dependencies, API-key configuration and network access. Conda is not
 required remotely. Resource-principal and session-token authentication require
@@ -110,7 +108,12 @@ python cluster_lifecycle/cluster_lifecycle.py status \
 `--no-wait` and `--no-dry-run` explicitly override true settings. With no action,
 `ACTION` is used (the supplied template selects `status`). Run `--help` for flags.
 
-The first output record identifies instance OCID, workspace key, cluster key,
+An opening `###` banner shows the operation and start time in UTC. A matching
+closing banner shows the end time and elapsed seconds, including on failure or
+interruption. Dry-run operations are labeled explicitly. Times describe script
+execution; an accepted cloud operation may still be running.
+
+The following output record identifies instance OCID, workspace key, cluster key,
 current state and action. Without waiting, a successful submission reports
 **accepted**, not completed. With waiting, success reports the observed final
 state. Exit codes: `0` success/no-op/dry-run/accepted request; `1` operational
@@ -176,22 +179,7 @@ appropriate authorized action. No automatic rollback or cleanup runs.
 Errors omit raw response bodies, signing headers, key contents and configuration
 values. Sanitize resource metadata before sharing logs publicly.
 
-## Quality checks
-
-From the repository root, with the project Conda environment active:
-
-```bash
-python -m black cluster_lifecycle
-python -m black --check cluster_lifecycle
-python -m pylint cluster_lifecycle/cluster_lifecycle.py cluster_lifecycle/configuration.py cluster_lifecycle/tests
-python -m pytest -q
-```
-
-Tool settings live in the root [pyproject.toml](../pyproject.toml). pytest runs
-both lifecycle tests and parametrized configuration tests without credentials
-or network. Coverage includes actions, ETags, no-ops, transitions, polling,
-SDK/REST pagination, duplicate targets, compartment boundaries, dotenv
-precedence, regional endpoints, path encoding and error redaction.
+## Remote verification
 
 For an explicitly authorized live test, record a non-production cluster's
 initial state, inspect status and dry-run, then start/stop with waiting as

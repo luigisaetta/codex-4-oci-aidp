@@ -10,6 +10,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 import oci
@@ -365,16 +366,8 @@ def change_state(
     )
 
 
-def main(argv=None):
-    """Run the command and return 0 for success or 1 for operational failure.
-
-    Args:
-        argv: Optional CLI argument list; defaults to process arguments.
-
-    Returns:
-        Process exit code. Argument parsing errors exit with code 2.
-    """
-    args = parse_settings(argv)
+def _execute(args):
+    """Execute validated settings, returning 0 on success or 1 on failure."""
     try:
         config = oci.config.from_file(
             os.path.expanduser(args.config_file), args.profile
@@ -441,12 +434,46 @@ def main(argv=None):
     return 1
 
 
-if __name__ == "__main__":
+def _print_banner(operation, timestamp, elapsed=None):
+    phase = "START" if elapsed is None else "END"
+    lines = [
+        f"### OCI AI DP cluster lifecycle | {phase}",
+        f"### Operation    : {operation}",
+        f"### {phase.title() + ' time':13}: {timestamp.isoformat(timespec='seconds')}",
+    ]
+    if elapsed is not None:
+        lines.append(f"### Elapsed time : {elapsed:.3f} seconds")
+    border = "#" * 72
+    print("\n".join([border, *lines, border]), flush=True)
+
+
+def main(argv=None):
+    """Run an operation with UTC timestamps and monotonic elapsed timing.
+
+    Args:
+        argv: Optional CLI arguments; defaults to process arguments.
+
+    Returns:
+        Exit code 0 for success, 1 for failure, or 130 for interruption.
+        Argument parsing errors exit with code 2 before execution begins.
+    """
+    args = parse_settings(argv)
+    operation = args.action.upper() + (" (DRY RUN)" if args.dry_run else "")
+    started = time.monotonic()
+    _print_banner(operation, datetime.now(timezone.utc))
     try:
-        sys.exit(main())
+        return _execute(args)
     except KeyboardInterrupt:
         print(
             "Interrupted; a submitted cloud operation is not cancelled. Check status.",
             file=sys.stderr,
         )
-        sys.exit(130)
+        return 130
+    finally:
+        _print_banner(
+            operation, datetime.now(timezone.utc), elapsed=time.monotonic() - started
+        )
+
+
+if __name__ == "__main__":
+    sys.exit(main())

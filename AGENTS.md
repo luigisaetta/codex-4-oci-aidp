@@ -28,6 +28,7 @@ Specifications are source-controlled project artifacts, not disposable planning 
 * Explain responsibilities, non-obvious decisions, inputs, outputs, side effects, and failure conditions. Do not add comments that merely restate the code.
 * Document runnable commands with prerequisites, safe placeholder values, expected results, and troubleshooting guidance.
 * Keep documentation aligned with implementation. Distinguish planned, implemented, locally tested, and remotely verified behavior.
+* Keep READMEs focused on setup and usage. Do not include reports that code passed Black, Pylint, pytest, or similar checks. Use tool badges in the main README, and record verification results in specifications or development documentation.
 * Maintain a root `CHANGELOG.md` as implementation evolves. Record user-visible additions and significant changes under `Unreleased`, with each entry prefixed by its ISO 8601 date (`YYYY-MM-DD`).
 * Verify service capabilities, API operations, CLI syntax, authentication options, and runtime constraints against authoritative documentation before relying on them. Link the relevant sources and record the verification date in the specification. Do not invent endpoints, SDK methods, CLI subcommands, or model identifiers.
 

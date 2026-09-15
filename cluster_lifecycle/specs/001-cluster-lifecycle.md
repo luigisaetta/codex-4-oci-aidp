@@ -10,7 +10,7 @@ across features through root `.env`, `.env.example`, `requirements.txt`, and
 `requirements-dev.txt` files. Preserve existing local settings when moving them.
 
 The initial implementation uses API-key authentication from `~/.oci/config`
-and the key file referenced by the selected profile. It requires Python 3.10+
+and the key file referenced by the selected profile. It requires Python 3.11+
 and `oci`, `requests`, and `python-dotenv`. Development uses Black, Pylint and
 pytest. Exact direct dependencies are pinned in the repository root requirements
 files. No separate AIDP SDK or OCI CLI installation is required.
@@ -39,6 +39,13 @@ files. No separate AIDP SDK or OCI CLI installation is required.
   scopes. Discovery can only assess resources visible to the caller.
 
 ## Behavior and safety
+
+After settings validation, print a `###` banner with the requested operation
+and start timestamp in UTC. Always print a matching end banner after execution,
+including errors and interruption, with the end timestamp and elapsed seconds
+measured by a monotonic clock. Identify dry-run mode in both banners. These mark
+script execution, not completion of an asynchronous cloud operation. Help and
+invalid arguments do not start an operation and do not print execution banners.
 
 Print the resolved instance, workspace, cluster key and current state before
 any mutation. Start only from `STOPPED`; stop only from `ACTIVE`. Treat the
@@ -119,7 +126,7 @@ Oracle documentation inspected on 2026-09-15:
 Local verification uses the user-created `codex-4-oci-aidp` Conda environment,
 Python 3.11.0 on macOS, OCI 2.186.0, Requests 2.34.2, python-dotenv 1.2.3,
 Black 26.5.1, Pylint 4.0.8 and pytest 9.1.1. Black, Pylint and offline pytest
-checks pass; the README provides reproducible commands. Tests cover the SDK's
+checks pass; `DEVELOPMENT.md` provides reproducible commands. Tests cover the SDK's
 real pagination aggregation using fake service responses, plus configuration,
 authentication wiring and lifecycle boundaries.
 

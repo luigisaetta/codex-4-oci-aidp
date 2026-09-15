@@ -6,6 +6,7 @@ Description: Pytest coverage for dotenv settings, endpoint derivation and SDK di
 """
 
 from pathlib import Path
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -212,3 +213,29 @@ def test_main_uses_selected_profile_region_and_workspace(env_file, monkeypatch):
     assert control.call_args.kwargs["signer"] is signer.return_value
     assert discover.call_args.kwargs["workspace_name"] == "workspace"
     assert change.call_args.args[2] == "status"
+
+
+@pytest.mark.parametrize("outcome", [0, 1, KeyboardInterrupt()])
+def test_execution_banners_cover_success_failure_and_interrupt(
+    env_file, monkeypatch, capsys, outcome
+):
+    """Every started execution prints final timing and preserves its exit status."""
+    execute = Mock(return_value=outcome)
+    if isinstance(outcome, KeyboardInterrupt):
+        execute.side_effect = outcome
+    monkeypatch.setattr(lifecycle, "_execute", execute)
+    monkeypatch.setattr(lifecycle.time, "monotonic", Mock(side_effect=[10.0, 12.5]))
+    clock = Mock()
+    clock.now.side_effect = [
+        datetime(2026, 9, 15, 10, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 9, 15, 10, 0, 2, tzinfo=timezone.utc),
+    ]
+    monkeypatch.setattr(lifecycle, "datetime", clock)
+    result = lifecycle.main(["start", "--dry-run", "--env-file", str(env_file)])
+    assert result == (130 if isinstance(outcome, KeyboardInterrupt) else outcome)
+    output = capsys.readouterr().out
+    assert output.index("| START") < output.index("| END")
+    assert output.count("### Operation    : START (DRY RUN)") == 2
+    assert "2026-09-15T10:00:00+00:00" in output
+    assert "2026-09-15T10:00:02+00:00" in output
+    assert "### Elapsed time : 2.500 seconds" in output
