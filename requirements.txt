@@ -4,3 +4,4 @@
 # Required by aidp-python-client 4.2.1: oci>=2.165.0,<2.166.
 oci==2.165.1
 python-dotenv==1.2.3
+fastmcp==3.4.5

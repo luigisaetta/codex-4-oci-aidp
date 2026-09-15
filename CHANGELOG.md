@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-15: Add the local AI DP notebook workflow MCP server for validated
+  notebook upload, single-task job reconciliation, job-run submission, and
+  read-only run status inspection.
+
 * 2026-09-15: Add a documented evaluation setup for Oracle's OCI API MCP
   Server. The isolated `codex-mcp-ai-dp` Python 3.13 environment and global
   Codex stdio registration preserve the project's Python 3.11 AI DP SDK

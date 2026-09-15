@@ -37,6 +37,7 @@ For runtime-only installation, use `requirements.txt` in the final command.
 | [Oracle AI DP SDK](https://github.com/oracle-samples/aidataplatform-sdk) (`aidp-python-client`) | 4.2.1 | Workspace, cluster, catalog, schema and volume operations through generated Python clients |
 | `oci` | 2.165.1 | OCI configuration, signing, compartment and AI DP instance discovery |
 | `python-dotenv` | 1.2.3 | Shared `.env` settings |
+| `fastmcp` | 3.4.5 | Local stdio MCP server framework for scoped AI DP notebook workflow tools |
 | `black` | 26.5.1 | Development: code formatting |
 | `pylint` | 4.0.8 | Development: static analysis |
 | `pytest` | 9.1.1 | Development: automated tests |
@@ -54,6 +55,9 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for contributor commands.
   stop a Workbench cluster using Python, OCI authentication and `.env` settings.
 * [Catalog tree](catalog_tree/README.md): list a catalog's visible schemas and
   volumes as a hierarchical tree.
+* [AI DP MCP workflow server](specs/002-notebook-workspace-job-mcp.md): upload
+  a local notebook, reconcile a single-task notebook job, submit a job run and
+  inspect its status through Codex.
 
 Both features reuse [aidp_common](aidp_common/README.md) for authentication,
 connection settings, SDK initialization and resource discovery.

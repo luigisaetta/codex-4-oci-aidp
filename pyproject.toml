@@ -3,13 +3,13 @@ line-length = 88
 target-version = ["py311"]
 
 [tool.pytest.ini_options]
-testpaths = ["cluster_lifecycle/tests", "catalog_tree/tests", "aidp_common/tests"]
-pythonpath = [".", "cluster_lifecycle", "catalog_tree"]
+testpaths = ["cluster_lifecycle/tests", "catalog_tree/tests", "aidp_common/tests", "aidp_mcp/tests"]
+pythonpath = [".", "cluster_lifecycle", "catalog_tree", "aidp_mcp"]
 addopts = "--strict-markers"
 
 [tool.pylint.main]
 py-version = "3.11"
-init-hook = "import sys; sys.path[:0] = ['.', 'cluster_lifecycle', 'catalog_tree']"
+init-hook = "import sys; sys.path[:0] = ['.', 'cluster_lifecycle', 'catalog_tree', 'aidp_mcp']"
 persistent = false
 
 [tool.pylint.format]
