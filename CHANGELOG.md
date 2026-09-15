@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+* 2026-09-15: Add a documented evaluation setup for Oracle's OCI API MCP
+  Server. The isolated `codex-mcp-ai-dp` Python 3.13 environment and global
+  Codex stdio registration preserve the project's Python 3.11 AI DP SDK
+  environment.
+
+* 2026-09-15: Add an OCI API MCP launcher that securely selects the project
+  `.env` OCI config file and profile without storing credentials in Codex.
+
+* 2026-09-15: Remove the OCI API MCP Codex registration at the user's request;
+  the isolated evaluation environment remains available but inactive.
+
 * 2026-09-15: Add a read-only catalog tree command with paginated schema/volume
   discovery and dedicated documentation. Extract shared connection settings,
   API-key authentication, SDK initialization and discovery into `aidp_common`.
