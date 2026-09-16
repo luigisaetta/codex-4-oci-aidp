@@ -804,12 +804,11 @@ class AidpWorkflowService:
                 volume_name,
             )
             volume_root = _volume_mount_path(catalog, schema, volume)
-            remote_path = _remote_volume_path(volume_root, path)
             while len(entries) < max_results:
                 response = volumes.list_files(
                     instance_id,
                     _resource_key(volume, "Volume"),
-                    remote_path,
+                    path,
                     is_recursive=True,
                     limit=max_results - len(entries),
                     page=page,
@@ -818,7 +817,7 @@ class AidpWorkflowService:
                 )
                 items = getattr(response.data, "items", None) or []
                 for index, item in enumerate(items):
-                    entries.append(_volume_file_summary(item, remote_path, path))
+                    entries.append(_volume_file_summary(item, path, volume_root))
                     if len(entries) == max_results:
                         is_truncated = index < len(items) - 1
                         break
@@ -1603,21 +1602,22 @@ def _volume_mount_path(catalog, schema, volume):
     return str(PurePosixPath("/Volumes").joinpath(*labels))
 
 
-def _remote_volume_path(volume_root, logical_path):
-    """Translate a public volume-relative path to the AI DP mount path."""
-    return str(
-        PurePosixPath(volume_root).joinpath(*PurePosixPath(logical_path).parts[1:])
-    )
-
-
-def _volume_file_summary(item, remote_root, logical_root):
-    """Sanitize one item and translate its AI DP mount path to a volume path."""
+def _volume_file_summary(item, logical_root, volume_root):
+    """Sanitize one item and normalize an optional AI DP mount-path prefix."""
     path = getattr(item, "path", None)
     if not isinstance(path, str):
         raise AidpError("Volume file response is missing its path.")
     normalized_path = validate_volume_path(path)
-    root = PurePosixPath(remote_root)
     candidate = PurePosixPath(normalized_path)
+    mount_root = PurePosixPath(volume_root)
+    try:
+        candidate = PurePosixPath("/").joinpath(
+            *candidate.relative_to(mount_root).parts
+        )
+    except ValueError:
+        # Some AI DP responses already use a path relative to the volume.
+        pass
+    root = PurePosixPath(logical_root)
     try:
         candidate.relative_to(root)
     except ValueError as exc:
@@ -1628,11 +1628,9 @@ def _volume_file_summary(item, remote_root, logical_root):
     display_name = getattr(item, "display_name", None)
     if not isinstance(display_name, str) or not display_name:
         raise AidpError("Volume file response is missing its display name.")
-    relative_parts = candidate.relative_to(root).parts
-    logical_path = str(PurePosixPath(logical_root).joinpath(*relative_parts))
     return {
         "display_name": display_name,
-        "path": logical_path,
+        "path": str(candidate),
         "type": entry_type,
         "time_created": getattr(item, "time_created", None),
         "time_updated": getattr(item, "time_updated", None),

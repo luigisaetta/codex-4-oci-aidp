@@ -63,11 +63,11 @@ Inputs:
 * `max_results`: optional integer from 1 through 1000, default 100.
 
 The tool resolves the catalog, schema and volume to an opaque volume key, then
-calls `VolumeClient.list_files` with `is_recursive=true`, `sort_by="displayName"`
-and `sort_order="ASC"`. Public `path` values are rooted at the selected volume:
-for example, `/datasets` is translated to AI DP's
-`/Volumes/<catalog>/<schema>/<volume>/datasets` mount path. Returned paths have
-that mount prefix removed, so callers never need to know it. It returns a `root`
+calls `VolumeClient.list_files` with the public volume-relative `path`,
+`is_recursive=true`, `sort_by="displayName"` and `sort_order="ASC"`. AI DP may
+return paths with a `/Volumes/<catalog>/<schema>/<volume>` mount prefix; the
+tool removes that prefix, so callers never need to know it. It also accepts
+already volume-relative returned paths. It returns a `root`
 tree with `FOLDER` and `FILE`
 nodes, each containing only `display_name`, `path`, `type`, `time_created` and
 `time_updated`. It uses paths to construct missing intermediate folder nodes;
@@ -124,9 +124,13 @@ suite passed: 147 tests on Python 3.11.0. `git diff --check` also passed.
 2026-09-16 correction: live exploration showed that AI DP returns file paths
 under `/Volumes/<catalog>/<schema>/<volume>`, even though this tool's contract
 defines its public paths relative to the selected volume. The implementation
-now translates both directions. Offline regression coverage verifies
-`/datasets` is sent as the corresponding mount path and that returned child
-paths are `/datasets/...`. Black check passed for `aidp_mcp`, Pylint scored
-10.00/10 for `aidp_mcp`, the full suite passed: 148 tests on Python 3.11.0,
-and `git diff --check` passed. Remote acceptance of the corrected server
-remains pending after the MCP process is reloaded.
+normalizes that response prefix but passes the public path unchanged to the
+volume-specific listing endpoint. Offline regression coverage verifies that
+`/datasets` is sent unchanged and that both mount-prefixed and volume-relative
+responses are exposed as `/datasets/...`. Remote acceptance remains pending
+until the MCP process is reloaded.
+
+2026-09-16 regression fix verification: targeted `aidp_mcp` tests passed
+(74 tests); Black check passed; Pylint scored 10.00/10; and the full local
+suite passed (149 tests) on Python 3.11.0. `git diff --check` passed. Remote
+verification remains pending until a new Codex MCP session is created.

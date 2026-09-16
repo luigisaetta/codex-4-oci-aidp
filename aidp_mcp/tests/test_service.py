@@ -927,13 +927,13 @@ def test_list_volume_files_builds_a_sanitized_recursive_tree(monkeypatch):
     assert arguments.args == (
         "instance",
         "volume-key",
-        "/Volumes/catalog/schema/volume",
+        "/",
     )
     assert arguments.kwargs["is_recursive"] is True
 
 
-def test_list_volume_files_translates_a_logical_child_path(monkeypatch):
-    """A public volume path is translated to, and returned from, the AI DP mount."""
+def test_list_volume_files_keeps_a_logical_child_path_in_the_request(monkeypatch):
+    """The SDK receives the public path while mount-prefixed responses normalize."""
     workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
     catalogs, schemas, volumes = Mock(), Mock(), Mock()
     catalog = SimpleNamespace(key="catalog-key", display_name="catalog")
@@ -978,7 +978,7 @@ def test_list_volume_files_translates_a_logical_child_path(monkeypatch):
     assert volumes.list_files.call_args.args == (
         "instance",
         "volume-key",
-        "/Volumes/catalog/schema/volume/datasets",
+        "/datasets",
     )
     assert result["root"] == {
         "display_name": "datasets",
@@ -994,6 +994,52 @@ def test_list_volume_files_translates_a_logical_child_path(monkeypatch):
             }
         ],
     }
+
+
+def test_list_volume_files_accepts_an_already_relative_response_path(monkeypatch):
+    """AI DP responses without a mount prefix remain valid volume paths."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+    catalogs, schemas, volumes = Mock(), Mock(), Mock()
+    catalog = SimpleNamespace(key="catalog-key", display_name="catalog")
+    schema = SimpleNamespace(key="catalog.schema", display_name="schema")
+    volume = SimpleNamespace(key="volume-key", display_name="volume")
+
+    @contextmanager
+    def catalog_clients():
+        yield "instance", catalogs, schemas, volumes
+
+    monkeypatch.setattr(workflow_service, "_catalog_clients", catalog_clients)
+    monkeypatch.setattr(
+        service.oci.pagination,
+        "list_call_get_all_results",
+        Mock(
+            side_effect=[
+                SimpleNamespace(data=[catalog]),
+                SimpleNamespace(data=[schema]),
+                SimpleNamespace(data=[volume]),
+            ]
+        ),
+    )
+    volumes.list_files.return_value = SimpleNamespace(
+        data=SimpleNamespace(
+            items=[
+                SimpleNamespace(
+                    display_name="train.jsonl",
+                    path="/datasets/train.jsonl",
+                    type="FILE",
+                    time_created="created",
+                    time_updated="updated",
+                )
+            ]
+        ),
+        headers={},
+    )
+
+    result = workflow_service.list_volume_files(
+        "catalog", "schema", "volume", path="/datasets"
+    )
+
+    assert result["root"]["children"][0]["path"] == "/datasets/train.jsonl"
 
 
 @pytest.mark.parametrize("value", [0, 1001, True, "100"])

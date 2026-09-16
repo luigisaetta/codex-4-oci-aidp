@@ -2,10 +2,9 @@
 
 ## Unreleased
 
-* 2026-09-16: Fix `list_volume_files` to translate public volume-relative
-  paths to AI DP's `/Volumes/<catalog>/<schema>/<volume>` mount path and return
-  volume-relative paths, allowing child folders such as `/datasets` to list
-  correctly.
+* 2026-09-16: Fix `list_volume_files` regression: pass volume-relative paths
+  unchanged to AI DP while normalizing optional `/Volumes/...` response
+  prefixes, restoring file and folder enumeration.
 
 * 2026-09-16: Add read-only `list_catalog_volumes` and `list_volume_files`
   MCP tools for discovering external Object Storage volumes and browsing their
