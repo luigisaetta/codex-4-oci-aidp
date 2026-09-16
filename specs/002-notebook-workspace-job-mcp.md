@@ -24,6 +24,7 @@ The initial server exposes these operations:
 | `start_notebook_job` | Creates a job run | Start a run for an existing job and optionally poll it to a terminal state. |
 | `get_job_run` | Read-only | Return the current job-run and task-run status, with sanitized resource identifiers. |
 | `get_cluster_status` | Read-only | Resolve one exact cluster in the configured workspace and return a small, sanitized configuration and state summary. |
+| `set_cluster_state` | Start or stop a cluster | Explicitly request `start` or `stop` for one exact configured-workspace cluster, with optional bounded waiting. |
 | `get_job_run_output` | Read-only | Fetch bounded, textual output for the one task in a managed single-notebook job run. |
 
 The first version supports one notebook task per managed job. It uses no
@@ -41,8 +42,10 @@ deletion.
   and clusters, modify workspace content, manage jobs and create job runs. It
   must also have the applicable compute-level permission to use the cluster and
   inspect its run metadata or logs.
-* The selected cluster must be active before a job run is submitted. Starting a
-  cluster is outside this feature's scope.
+* The selected cluster must be active before a job run is submitted. When it is
+  stopped, callers may explicitly use `set_cluster_state(..., "start",
+  wait=true, confirm_action=true)` and only submit the job after it reports
+  `completed` with state `ACTIVE`.
 * The local notebook is a valid, non-empty `.ipynb` file under the repository
   root. Uploading files outside the repository is rejected in the initial
   version.
@@ -59,6 +62,7 @@ aidp-mcp (stdio, local Python 3.11)
           |
           +-- NotebookClient: create/update workspace content
           +-- ClusterClient: resolve and validate an active cluster
+          +-- ClusterClient: explicitly start or stop a selected cluster
           +-- WorkflowClient: create/update job, create job run, poll status
           |
           v
@@ -118,6 +122,19 @@ type, state, state details, runtime version, node type, driver and worker
 configuration, and auto-termination setting. It omits endpoints, log identifiers,
 attached notebook/session lists, and arbitrary configuration objects.
 
+`set_cluster_state` accepts an exact `cluster_name`, an action of `start` or
+`stop`, `wait`, `timeout_seconds`, and `confirm_action`. It requires
+`confirm_action=true` before performing discovery or mutation. It starts only a
+`STOPPED` cluster and stops only an `ACTIVE` cluster; an already desired state
+is a successful no-op, and an existing `STARTING` or `STOPPING` transition is
+not resubmitted. Other states fail safely. The request uses the detail response
+ETag when available, `NoneRetryStrategy`, and one unique retry token. A
+transport failure has an unknown outcome and must be followed by
+`get_cluster_status`, never an automatic retry. The API's accepted response is
+reported as `accepted`; only `wait=true` and a `completed` outcome prove the
+requested state. Polling is bounded (default 1,200 seconds), and timeout never
+cancels the cloud operation.
+
 `get_job_run_output` accepts a job-run key and an optional `max_characters`
 value from 1 through 12,000 (default 12,000). It resolves the task runs and
 refuses runs that do not have exactly one task run, preserving the server's
@@ -133,7 +150,8 @@ for the active Codex session.
 ## Non-goals
 
 * Generating notebooks; Codex performs that local editing work.
-* Starting, stopping, resizing, or creating clusters.
+* Resizing, creating, restarting, or automatically starting/stopping clusters
+  as a side effect of job submission.
 * Broad workspace browsing, catalog/volume access, arbitrary file upload, or
   arbitrary OCI command execution.
 * Schedules, automatic retry beyond the job definition, cleanup by name
@@ -142,12 +160,15 @@ for the active Codex session.
 
 ## Safety, authorization, and recovery
 
-`upload_notebook`, `ensure_notebook_job`, and `start_notebook_job` are remote
+`upload_notebook`, `ensure_notebook_job`, `start_notebook_job`, and
+`set_cluster_state` are remote
 mutations. Each must display its resolved instance, workspace, destination,
 cluster, and intended change before it applies the request. Only
 `start_notebook_job` requires a separate positive confirmation because it can
-consume compute immediately. Tool descriptions must make this distinction
-visible to Codex.
+consume compute immediately. `set_cluster_state` also requires a separate
+positive confirmation: start can incur compute charges, while stop can
+interrupt workloads. Tool descriptions must make these distinctions visible to
+Codex.
 
 The server must use exact identifiers after discovery, bound all polling, and
 record created or updated resource keys in its sanitized response. On a lost
@@ -171,7 +192,7 @@ absolute paths beyond the launcher itself.
 * Offline tests cover path validation, notebook validation, identifier
   validation, exact-match discovery, dry-run output, conflict handling, and
   bounded polling using mocked SDK clients.
-* A protocol test starts the stdio MCP server and verifies all six tool
+* A protocol test starts the stdio MCP server and verifies all seven tool
   schemas without cloud access.
 * `upload_notebook` performs no SDK mutation when `apply=false`, and update
   logic is idempotent when the remote digest matches the local digest.
@@ -196,11 +217,21 @@ Verified 2026-09-15:
 * Oracle documents jobs and job-run tracking: <https://docs.oracle.com/en/cloud/paas/ai-data-platform/aidug/configure-jobs.html>
 * The AI DP REST reference documents cluster retrieval and task-run output
   retrieval operations: <https://docs.oracle.com/en/cloud/paas/ai-data-platform/aiwap/rest-endpoints.html>
+* Oracle's cluster REST reference documents the `start` and `stop` actions and
+  their cluster-specific endpoints (verified 2026-09-16):
+  <https://docs.oracle.com/en/cloud/paas/ai-data-platform/aiwap/api-cluster.html>
 * The locally installed `aidp-python-client` 4.2.1 exposes `NotebookClient`
   content operations and `WorkflowClient` job/job-run operations. These APIs
   have not been invoked against AI DP for this specification.
 
 ## Implementation status
+
+Implemented locally on 2026-09-16: `set_cluster_state` adds an explicitly
+confirmed start/stop lifecycle operation. Offline tests cover tool registration,
+confirmation, state no-op behavior, typed start/stop SDK submissions, ETag
+forwarding, no-retry submission, and timeout input validation. Black, Pylint,
+and the full offline test suite passed; no cluster lifecycle action was made
+against OCI, so live lifecycle verification remains pending.
 
 Implemented locally on 2026-09-15. The `aidp_mcp/` package provides the stdio
 server and `scripts/start_aidp_mcp.sh` launches it in `codex-4-oci-aidp`.

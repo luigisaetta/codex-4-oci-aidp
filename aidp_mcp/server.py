@@ -1,8 +1,8 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-15
+Date last modified: 2026-09-16
 License: MIT
-Description: Stdio MCP server exposing scoped AI DP notebook workflow tools.
+Description: Stdio MCP server exposing scoped AI DP notebook workflow and cluster tools.
 """
 
 from fastmcp import FastMCP
@@ -78,6 +78,29 @@ def get_job_run(job_run_key: str) -> dict:
 def get_cluster_status(cluster_name: str) -> dict:
     """Read the selected AI DP cluster's state and small configuration summary."""
     return _service().get_cluster_status(cluster_name)
+
+
+@MCP.tool()
+def set_cluster_state(
+    cluster_name: str,
+    action: str,
+    *,
+    wait: bool = False,
+    timeout_seconds: int = 1200,
+    confirm_action: bool = False,
+) -> dict:
+    """Explicitly start or stop one cluster; confirm_action=true is required.
+
+    Start can incur compute charges; stop can interrupt workloads. An accepted
+    request is not completion unless wait=true reports a completed outcome.
+    """
+    return _service().set_cluster_state(
+        cluster_name,
+        action,
+        wait=wait,
+        timeout_seconds=timeout_seconds,
+        confirm_action=confirm_action,
+    )
 
 
 @MCP.tool()

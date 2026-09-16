@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-16: Add the confirmed `set_cluster_state` MCP tool to start or stop
+  an exact AI DP cluster, with ETag-guarded no-retry submission and optional
+  bounded waiting before a notebook job is started.
+
 * 2026-09-15: Fix cluster lifecycle parsing after shared workspace-name
   configuration caused a duplicate `--workspace-name` argument.
 

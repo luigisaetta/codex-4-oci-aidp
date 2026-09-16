@@ -1,9 +1,13 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-15
+Date last modified: 2026-09-16
 License: MIT
 Description: Validated AI DP notebook upload and single-task workflow operations.
 """
+
+# This deliberately keeps the MCP service's cohesive validation and response
+# boundary in one module; its supported operation set exceeds Pylint's default.
+# pylint: disable=too-many-lines
 
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
@@ -12,6 +16,7 @@ import json
 from pathlib import Path, PurePosixPath
 import time
 from urllib.parse import quote
+from uuid import uuid4
 
 import oci
 from aidp_python_client.aidataplatform_dp import (
@@ -335,6 +340,27 @@ def find_cluster_status(clusters, instance_id, workspace_key, cluster_name):
     Raises:
         AidpError: The cluster is absent, ambiguous, or lacks a resource key.
     """
+    return find_cluster_details(clusters, instance_id, workspace_key, cluster_name).data
+
+
+def find_cluster_details(clusters, instance_id, workspace_key, cluster_name):
+    """Resolve one exact cluster and return its detailed SDK response.
+
+    This preserves the ETag required to protect a lifecycle mutation from a
+    concurrent cluster update.
+
+    Args:
+        clusters: Generated ClusterClient.
+        instance_id: Selected AI DP instance OCID.
+        workspace_key: Selected workspace key.
+        cluster_name: Exact cluster display name.
+
+    Returns:
+        oci.response.Response: Detailed cluster response, including headers.
+
+    Raises:
+        AidpError: The cluster is absent, ambiguous, or lacks a resource key.
+    """
     matches = [
         item
         for item in oci.pagination.list_call_get_all_results(
@@ -348,7 +374,7 @@ def find_cluster_status(clusters, instance_id, workspace_key, cluster_name):
     if len(matches) != 1:
         raise AidpError(f"Expected exactly one cluster named {cluster_name!r}.")
     key = _resource_key(matches[0], "Cluster")
-    return clusters.get_cluster(instance_id, workspace_key, key).data
+    return clusters.get_cluster(instance_id, workspace_key, key)
 
 
 def _find_job(workflows, instance_id, workspace_key, job_name):
@@ -757,6 +783,119 @@ class AidpWorkflowService:
             )
             return _cluster_response(cluster)
 
+    def set_cluster_state(
+        self,
+        cluster_name,
+        action,
+        *,
+        wait=False,
+        timeout_seconds=1200,
+        confirm_action=False,
+    ):
+        """Start or stop one exact cluster in the configured workspace.
+
+        Args:
+            cluster_name: Exact cluster display name in the configured workspace.
+            action: Requested lifecycle action, either ``start`` or ``stop``.
+            wait: Poll until the requested state is observed.
+            timeout_seconds: Positive maximum polling duration in seconds.
+            confirm_action: Required explicit authorization for the mutation.
+
+        Returns:
+            dict: Sanitized cluster summary and lifecycle submission outcome.
+
+        Raises:
+            AidpError: Validation, state transition, submission, or polling fails.
+        """
+        if not confirm_action:
+            raise AidpError(
+                "Set confirm_action=true to submit a cluster lifecycle action."
+            )
+        if not isinstance(cluster_name, str) or not cluster_name.strip():
+            raise AidpError("Cluster name must be a nonempty string.")
+        if action not in ("start", "stop"):
+            raise AidpError("Cluster action must be either 'start' or 'stop'.")
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, int)
+            or timeout_seconds < 1
+        ):
+            raise AidpError("timeout_seconds must be a positive integer.")
+        with self._clients() as clients:
+            instance_id, workspace_key, clusters, _, _ = clients
+            response = find_cluster_details(
+                clusters, instance_id, workspace_key, cluster_name
+            )
+            cluster = response.data
+            state = getattr(cluster, "state", None)
+            desired, origin, transition = (
+                ("ACTIVE", "STOPPED", "STARTING")
+                if action == "start"
+                else ("STOPPED", "ACTIVE", "STOPPING")
+            )
+            if state == desired:
+                return _cluster_lifecycle_response(action, "already_desired", cluster)
+            if state not in (origin, transition):
+                raise AidpError(
+                    f"Cannot {action} a cluster in state {state!r}; inspect its status."
+                )
+            if state == origin:
+                _submit_cluster_action(
+                    clusters,
+                    instance_id=instance_id,
+                    workspace_key=workspace_key,
+                    cluster=cluster,
+                    action=action,
+                    headers=response.headers,
+                )
+                outcome = "accepted"
+            else:
+                outcome = "already_transitioning"
+            if not wait:
+                return _cluster_lifecycle_response(action, outcome, cluster)
+            return self._wait_for_cluster_state(
+                clusters,
+                instance_id=instance_id,
+                workspace_key=workspace_key,
+                cluster_key=_resource_key(cluster, "Cluster"),
+                action=action,
+                desired=desired,
+                origin=origin,
+                transition=transition,
+                timeout_seconds=timeout_seconds,
+            )
+
+    def _wait_for_cluster_state(
+        self,
+        clusters,
+        *,
+        instance_id,
+        workspace_key,
+        cluster_key,
+        action,
+        desired,
+        origin,
+        transition,
+        timeout_seconds,
+    ):
+        """Poll a submitted lifecycle action without cancelling it on timeout."""
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            cluster = clusters.get_cluster(instance_id, workspace_key, cluster_key).data
+            state = getattr(cluster, "state", None)
+            if state == desired:
+                return _cluster_lifecycle_response(action, "completed", cluster)
+            if state not in (origin, transition):
+                raise AidpError(
+                    "Cluster reached an unexpected state while waiting; inspect its "
+                    "status."
+                )
+            time.sleep(min(10, max(0.1, deadline - time.monotonic())))
+        cluster = clusters.get_cluster(instance_id, workspace_key, cluster_key).data
+        result = _cluster_lifecycle_response(action, "timed_out", cluster)
+        result["timed_out"] = True
+        return result
+
     def get_job_run_output(
         self, job_run_key, max_characters=MAX_JOB_RUN_OUTPUT_CHARACTERS
     ):
@@ -839,6 +978,57 @@ def _cluster_response(cluster):
         "driver": _shape_response(getattr(cluster, "driver_config", None)),
         "workers": _worker_response(getattr(cluster, "worker_config", None)),
         "auto_termination_minutes": getattr(cluster, "auto_termination_minutes", None),
+    }
+
+
+def _submit_cluster_action(
+    clusters, *, instance_id, workspace_key, cluster, action, headers
+):
+    """Submit one lifecycle request without application-level retries.
+
+    A transport error has an unknown remote outcome, so callers must inspect
+    status rather than automatically submitting a second request.
+    """
+    options = {
+        "retry_strategy": oci.retry.NoneRetryStrategy(),
+        "opc_retry_token": str(uuid4()),
+    }
+    etag = headers.get("etag") if headers else None
+    if etag:
+        options["if_match"] = etag
+    try:
+        if action == "start":
+            response = clusters.start_cluster(
+                instance_id,
+                workspace_key,
+                _resource_key(cluster, "Cluster"),
+                models.StartClusterDetails(),
+                **options,
+            )
+        else:
+            response = clusters.stop_cluster(
+                instance_id,
+                workspace_key,
+                _resource_key(cluster, "Cluster"),
+                models.StopClusterDetails(),
+                **options,
+            )
+    except oci.exceptions.RequestException as exc:
+        raise AidpError(
+            "Cluster action outcome is unknown; check status before retrying."
+        ) from exc
+    if response.status != 202:
+        raise AidpError(
+            "Unexpected cluster action response; check status before retrying."
+        )
+
+
+def _cluster_lifecycle_response(action, outcome, cluster):
+    """Return a lifecycle result without response bodies or trace metadata."""
+    return {
+        "action": action,
+        "outcome": outcome,
+        "cluster": _cluster_response(cluster),
     }
 
 

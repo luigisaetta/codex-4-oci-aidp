@@ -1,6 +1,6 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-15
+Date last modified: 2026-09-16
 License: MIT
 Description: Offline tests for AI DP MCP validation and tool registration.
 """
@@ -217,6 +217,104 @@ def test_cluster_response_omits_sensitive_runtime_references():
     }
 
 
+def test_set_cluster_state_starts_stopped_cluster_with_etag(monkeypatch):
+    """Lifecycle start uses one ETag-guarded, no-retry SDK submission."""
+    clusters = Mock()
+    cluster = SimpleNamespace(key="cluster-key", display_name="clu02", state="STOPPED")
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+
+    @contextmanager
+    def clients():
+        yield "instance", "workspace", clusters, Mock(), Mock()
+
+    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(
+        service,
+        "find_cluster_details",
+        Mock(return_value=SimpleNamespace(data=cluster, headers={"etag": "etag"})),
+    )
+    clusters.start_cluster.return_value = SimpleNamespace(status=202)
+
+    result = workflow_service.set_cluster_state("clu02", "start", confirm_action=True)
+
+    assert result["outcome"] == "accepted"
+    assert result["cluster"]["state"] == "STOPPED"
+    arguments = clusters.start_cluster.call_args
+    assert arguments.args[:3] == ("instance", "workspace", "cluster-key")
+    assert type(arguments.args[3]).__name__ == "StartClusterDetails"
+    assert arguments.kwargs["if_match"] == "etag"
+    assert type(arguments.kwargs["retry_strategy"]).__name__ == "NoneRetryStrategy"
+    assert arguments.kwargs["opc_retry_token"]
+
+
+def test_set_cluster_state_requires_explicit_confirmation():
+    """The lifecycle tool never performs discovery or mutation without consent."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+
+    with pytest.raises(AidpError, match="confirm_action=true"):
+        workflow_service.set_cluster_state("clu02", "start")
+
+
+def test_set_cluster_state_does_not_resubmit_active_start(monkeypatch):
+    """An already active cluster is a successful lifecycle no-op."""
+    clusters = Mock()
+    cluster = SimpleNamespace(key="cluster-key", display_name="clu02", state="ACTIVE")
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+
+    @contextmanager
+    def clients():
+        yield "instance", "workspace", clusters, Mock(), Mock()
+
+    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(
+        service,
+        "find_cluster_details",
+        Mock(return_value=SimpleNamespace(data=cluster, headers={})),
+    )
+
+    result = workflow_service.set_cluster_state("clu02", "start", confirm_action=True)
+
+    assert result["outcome"] == "already_desired"
+    clusters.start_cluster.assert_not_called()
+
+
+def test_set_cluster_state_stops_active_cluster(monkeypatch):
+    """Lifecycle stop selects the typed stop request for an active cluster."""
+    clusters = Mock()
+    cluster = SimpleNamespace(key="cluster-key", display_name="clu02", state="ACTIVE")
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+
+    @contextmanager
+    def clients():
+        yield "instance", "workspace", clusters, Mock(), Mock()
+
+    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(
+        service,
+        "find_cluster_details",
+        Mock(return_value=SimpleNamespace(data=cluster, headers={})),
+    )
+    clusters.stop_cluster.return_value = SimpleNamespace(status=202)
+
+    result = workflow_service.set_cluster_state("clu02", "stop", confirm_action=True)
+
+    assert result["outcome"] == "accepted"
+    assert (
+        type(clusters.stop_cluster.call_args.args[3]).__name__ == "StopClusterDetails"
+    )
+
+
+@pytest.mark.parametrize("value", [0, True, "1200"])
+def test_set_cluster_state_rejects_unsafe_wait_limits(value):
+    """Cluster lifecycle polling bounds are validated before cloud discovery."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+
+    with pytest.raises(AidpError, match="timeout_seconds"):
+        workflow_service.set_cluster_state(
+            "clu02", "start", timeout_seconds=value, confirm_action=True
+        )
+
+
 def test_task_run_output_response_filters_and_bounds_output():
     """Only plain non-encoded text is returned within one character budget."""
     task_run = SimpleNamespace(key="task-run-key", task_key="notebook")
@@ -291,7 +389,7 @@ def test_get_job_run_output_rejects_unsafe_character_limits(value):
         workflow_service.get_job_run_output("job-run-key", value)
 
 
-def test_server_registers_the_six_scoped_tools():
+def test_server_registers_the_seven_scoped_tools():
     """The MCP schema exposes the specified tools without cloud access."""
     names = {tool.name for tool in asyncio.run(MCP.list_tools())}
     assert names == {
@@ -300,5 +398,6 @@ def test_server_registers_the_six_scoped_tools():
         "start_notebook_job",
         "get_job_run",
         "get_cluster_status",
+        "set_cluster_state",
         "get_job_run_output",
     }
