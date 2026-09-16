@@ -996,6 +996,75 @@ def test_list_volume_files_keeps_a_logical_child_path_in_the_request(monkeypatch
     }
 
 
+def test_list_volume_files_inspects_folders_when_recursive_listing_is_shallow(
+    monkeypatch,
+):
+    """Direct-child AI DP responses are expanded into the promised tree."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+    catalogs, schemas, volumes = Mock(), Mock(), Mock()
+    catalog = SimpleNamespace(key="catalog-key", display_name="catalog")
+    schema = SimpleNamespace(key="catalog.schema", display_name="schema")
+    volume = SimpleNamespace(key="volume-key", display_name="volume")
+
+    @contextmanager
+    def catalog_clients():
+        yield "instance", catalogs, schemas, volumes
+
+    monkeypatch.setattr(workflow_service, "_catalog_clients", catalog_clients)
+    monkeypatch.setattr(
+        service.oci.pagination,
+        "list_call_get_all_results",
+        Mock(
+            side_effect=[
+                SimpleNamespace(data=[catalog]),
+                SimpleNamespace(data=[schema]),
+                SimpleNamespace(data=[volume]),
+            ]
+        ),
+    )
+    volumes.list_files.side_effect = [
+        SimpleNamespace(
+            data=SimpleNamespace(
+                items=[
+                    SimpleNamespace(
+                        display_name="datasets",
+                        path="/datasets",
+                        type="FOLDER",
+                        time_created="created",
+                        time_updated="updated",
+                    )
+                ]
+            ),
+            headers={},
+        ),
+        SimpleNamespace(
+            data=SimpleNamespace(
+                items=[
+                    SimpleNamespace(
+                        display_name="train.jsonl",
+                        path="/datasets/train.jsonl",
+                        type="FILE",
+                        time_created="created",
+                        time_updated="updated",
+                    )
+                ]
+            ),
+            headers={},
+        ),
+    ]
+
+    result = workflow_service.list_volume_files("catalog", "schema", "volume")
+
+    assert [call.args[2] for call in volumes.list_files.call_args_list] == [
+        "/",
+        "/datasets",
+    ]
+    assert result["root"]["children"][0]["children"][0]["path"] == (
+        "/datasets/train.jsonl"
+    )
+    assert result["is_truncated"] is False
+
+
 def test_list_volume_files_accepts_an_already_relative_response_path(monkeypatch):
     """AI DP responses without a mount prefix remain valid volume paths."""
     workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())

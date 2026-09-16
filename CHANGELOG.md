@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-16: Make `list_volume_files` explicitly inspect unexpanded folders
+  when AI DP ignores the recursive-listing flag, restoring complete bounded
+  volume trees from the root path.
+
 * 2026-09-16: Fix `list_volume_files` regression: pass volume-relative paths
   unchanged to AI DP while normalizing optional `/Volumes/...` response
   prefixes, restoring file and folder enumeration.

@@ -64,7 +64,10 @@ Inputs:
 
 The tool resolves the catalog, schema and volume to an opaque volume key, then
 calls `VolumeClient.list_files` with the public volume-relative `path`,
-`is_recursive=true`, `sort_by="displayName"` and `sort_order="ASC"`. AI DP may
+`is_recursive=true`, `sort_by="displayName"` and `sort_order="ASC"`. Some AI DP
+responses return only direct children despite that flag; the tool explicitly
+inspects any returned folder with no returned descendants, producing the
+documented recursive tree. AI DP may
 return paths with a `/Volumes/<catalog>/<schema>/<volume>` mount prefix; the
 tool removes that prefix, so callers never need to know it. It also accepts
 already volume-relative returned paths. It returns a `root`
@@ -134,3 +137,12 @@ until the MCP process is reloaded.
 (74 tests); Black check passed; Pylint scored 10.00/10; and the full local
 suite passed (149 tests) on Python 3.11.0. `git diff --check` passed. Remote
 verification remains pending until a new Codex MCP session is created.
+
+2026-09-16 root-traversal fix: live read-only exploration of
+`fine_tuning.fine_tuning.vol_finetuning` showed that listing `/` returned only
+its three direct folders while listing `/datasets` returned five JSONL files.
+The traversal now explicitly expands folders lacking returned descendants.
+The new offline regression test covers this shallow-response behavior. Black
+check passed, Pylint scored 10.00/10, `git diff --check` passed, and the full
+local suite passed (150 tests) on Python 3.11.0. Remote verification remains
+pending until Codex restarts the registered stdio MCP server.

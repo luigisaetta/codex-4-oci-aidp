@@ -787,9 +787,6 @@ class AidpWorkflowService:
         volume_name = validate_resource_name(volume_name, "Volume")
         path = validate_volume_path(path)
         _validate_result_limit(max_results, MAX_VOLUME_FILE_RESULTS)
-        entries = []
-        page = None
-        is_truncated = False
         with self._catalog_clients() as clients:
             instance_id, catalogs, schemas, volumes = clients
             catalog = _find_exact_catalog(catalogs, instance_id, catalog_name)
@@ -804,27 +801,14 @@ class AidpWorkflowService:
                 volume_name,
             )
             volume_root = _volume_mount_path(catalog, schema, volume)
-            while len(entries) < max_results:
-                response = volumes.list_files(
-                    instance_id,
-                    _resource_key(volume, "Volume"),
-                    path,
-                    is_recursive=True,
-                    limit=max_results - len(entries),
-                    page=page,
-                    sort_by="displayName",
-                    sort_order="ASC",
-                )
-                items = getattr(response.data, "items", None) or []
-                for index, item in enumerate(items):
-                    entries.append(_volume_file_summary(item, path, volume_root))
-                    if len(entries) == max_results:
-                        is_truncated = index < len(items) - 1
-                        break
-                page = (getattr(response, "headers", None) or {}).get("opc-next-page")
-                if is_truncated or not page:
-                    break
-            is_truncated = is_truncated or bool(page)
+            entries_by_path, is_truncated = _list_volume_file_entries(
+                volumes,
+                instance_id=instance_id,
+                volume_key=_resource_key(volume, "Volume"),
+                root_path=path,
+                max_results=max_results,
+                volume_root=volume_root,
+            )
         return {
             "volume": {
                 "catalog_name": getattr(catalog, "display_name", None),
@@ -833,7 +817,7 @@ class AidpWorkflowService:
                 "volume_key": _resource_key(volume, "Volume"),
             },
             "path": path,
-            "root": _volume_file_tree(path, entries),
+            "root": _volume_file_tree(path, list(entries_by_path.values())),
             "is_truncated": is_truncated,
         }
 
@@ -1688,6 +1672,91 @@ def _volume_file_tree(root_path, entries):
         return node
 
     return render(root)
+
+
+def _list_volume_file_entries(
+    volumes, *, instance_id, volume_key, root_path, max_results, volume_root
+):
+    """Collect a bounded tree, compensating for shallow recursive responses."""
+    entries_by_path = {}
+    pending_paths = [root_path]
+    inspected_paths = set()
+    is_truncated = False
+    while pending_paths and len(entries_by_path) < max_results:
+        current_path = pending_paths.pop(0)
+        if current_path in inspected_paths:
+            continue
+        inspected_paths.add(current_path)
+        page = None
+        response_entries = []
+        while len(entries_by_path) < max_results:
+            response = volumes.list_files(
+                instance_id,
+                volume_key,
+                current_path,
+                is_recursive=True,
+                limit=max_results - len(entries_by_path),
+                page=page,
+                sort_by="displayName",
+                sort_order="ASC",
+            )
+            items = getattr(response.data, "items", None) or []
+            for index, item in enumerate(items):
+                entry = _volume_file_summary(item, current_path, volume_root)
+                response_entries.append(entry)
+                entries_by_path.setdefault(entry["path"], entry)
+                if len(entries_by_path) == max_results:
+                    is_truncated = index < len(items) - 1
+                    break
+            page = (getattr(response, "headers", None) or {}).get("opc-next-page")
+            if is_truncated or not page:
+                break
+        is_truncated = is_truncated or bool(page)
+        if is_truncated:
+            break
+        _queue_unexpanded_volume_folders(
+            pending_paths, inspected_paths, current_path, response_entries
+        )
+    return entries_by_path, is_truncated or bool(pending_paths)
+
+
+def _queue_unexpanded_volume_folders(
+    pending_paths, inspected_paths, current_path, entries
+):
+    """Queue folders without returned descendants for explicit inspection.
+
+    AI DP can return only direct children despite accepting ``is_recursive``.
+    Folders with no returned descendant are therefore inspected separately;
+    folders already represented by a recursive response are not queried again.
+    """
+    current = PurePosixPath(current_path)
+    folder_paths = {
+        entry["path"]
+        for entry in entries
+        if entry["type"] == "FOLDER" and entry["path"] != current_path
+    }
+    for folder_path in sorted(folder_paths):
+        folder = PurePosixPath(folder_path)
+        has_descendant = any(
+            entry["path"] != folder_path
+            and _is_volume_path_descendant(PurePosixPath(entry["path"]), folder)
+            for entry in entries
+        )
+        if (
+            not has_descendant
+            and folder_path not in inspected_paths
+            and folder_path not in pending_paths
+            and _is_volume_path_descendant(folder, current)
+        ):
+            pending_paths.append(folder_path)
+
+
+def _is_volume_path_descendant(candidate, parent):
+    """Return whether ``candidate`` is strictly below the POSIX ``parent``."""
+    try:
+        return candidate.relative_to(parent) != PurePosixPath(".")
+    except ValueError:
+        return False
 
 
 def _run_state(job_run):
