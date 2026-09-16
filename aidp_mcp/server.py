@@ -45,6 +45,16 @@ def list_notebooks(
 
 
 @MCP.tool()
+def find_notebook_jobs(workspace_notebook_path: str, max_results: int = 100) -> dict:
+    """List workflow jobs whose workspace notebook task uses one exact notebook.
+
+    `workspace_notebook_path` must be absolute and rooted at `/Workspace`.
+    This read-only search returns sanitized job and matching-task metadata.
+    """
+    return _service().find_notebook_jobs(workspace_notebook_path, max_results)
+
+
+@MCP.tool()
 def ensure_notebook_job(
     job_name: str,
     workspace_notebook_path: str,

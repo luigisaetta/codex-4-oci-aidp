@@ -75,6 +75,21 @@ def test_validate_workspace_directory_accepts_workspace_root():
     assert service.validate_workspace_directory("/Workspace") == "/Workspace"
 
 
+@pytest.mark.parametrize("value", ["notebooks/test00.ipynb", "/Workspace/jobs"])
+def test_validate_workspace_notebook_path_rejects_nonabsolute_or_nonnotebook(value):
+    """Job discovery accepts only one safe absolute notebook path."""
+    with pytest.raises(AidpError):
+        service.validate_workspace_notebook_path(value)
+
+
+def test_normalized_task_notebook_path_accepts_relative_sdk_task_path():
+    """Job task paths stored relative by the SDK match workspace discovery."""
+    assert (
+        service._normalized_task_notebook_path("notebooks/test00/test00.ipynb")
+        == "/Workspace/notebooks/test00/test00.ipynb"
+    )
+
+
 def test_notebook_service_path_is_absolute_and_url_encoded():
     """Notebook API paths preserve the service root and encode path separators."""
     content_path = service.workspace_content_path("jobs/example.ipynb")
@@ -478,6 +493,119 @@ def test_list_notebooks_paginates_and_filters_metadata(monkeypatch):
     assert request.call_args_list[1].kwargs["page"] == "next-page"
 
 
+def test_find_notebook_jobs_matches_workspace_tasks_and_paginates(monkeypatch):
+    """Job discovery gets definitions and returns only matching task metadata."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+    workflows = Mock()
+    first_page = SimpleNamespace(
+        data=SimpleNamespace(items=[SimpleNamespace(key="unrelated")]),
+        headers={"opc-next-page": "next-page"},
+    )
+    second_page = SimpleNamespace(
+        data=SimpleNamespace(items=[SimpleNamespace(key="test00-job")]), headers={}
+    )
+    workflows.list_jobs.side_effect = [first_page, second_page]
+    workflows.get_job.side_effect = [
+        SimpleNamespace(
+            data=SimpleNamespace(
+                tasks=[
+                    SimpleNamespace(
+                        type="NOTEBOOK_TASK",
+                        source="GIT_PROVIDER",
+                        notebook_path="notebooks/test00/test00.ipynb",
+                    )
+                ]
+            )
+        ),
+        SimpleNamespace(
+            data=SimpleNamespace(
+                name="test00_job",
+                path="/Workspace/jobs",
+                tasks=[
+                    SimpleNamespace(
+                        type="NOTEBOOK_TASK",
+                        source="WORKSPACE",
+                        task_key="notebook",
+                        notebook_path="notebooks/test00/test00.ipynb",
+                        cluster=SimpleNamespace(cluster_key="clu02-key"),
+                    )
+                ],
+            )
+        ),
+    ]
+
+    @contextmanager
+    def clients():
+        yield "instance", "workspace", Mock(), Mock(), workflows
+
+    monkeypatch.setattr(workflow_service, "_clients", clients)
+
+    result = workflow_service.find_notebook_jobs(
+        "/Workspace/notebooks/test00/test00.ipynb", max_results=5
+    )
+
+    assert result == {
+        "workspace_notebook_path": "/Workspace/notebooks/test00/test00.ipynb",
+        "jobs": [
+            {
+                "job_key": "test00-job",
+                "job_name": "test00_job",
+                "job_path": "/Workspace/jobs",
+                "matching_tasks": [
+                    {"task_key": "notebook", "cluster_key": "clu02-key"}
+                ],
+            }
+        ],
+        "is_truncated": False,
+    }
+    assert workflows.list_jobs.call_args_list[1].kwargs["page"] == "next-page"
+
+
+def test_find_notebook_jobs_reports_conservative_truncation(monkeypatch):
+    """Hitting the requested match limit never claims an exhaustive search."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+    workflows = Mock()
+    workflows.list_jobs.return_value = SimpleNamespace(
+        data=SimpleNamespace(items=[SimpleNamespace(key="job-key")]), headers={}
+    )
+    workflows.get_job.return_value = SimpleNamespace(
+        data=SimpleNamespace(
+            name="job",
+            path="/Workspace/jobs",
+            tasks=[
+                SimpleNamespace(
+                    type="NOTEBOOK_TASK",
+                    source="WORKSPACE",
+                    task_key="notebook",
+                    notebook_path="/Workspace/notebooks/test00/test00.ipynb",
+                    cluster=SimpleNamespace(cluster_key="cluster-key"),
+                )
+            ],
+        )
+    )
+
+    @contextmanager
+    def clients():
+        yield "instance", "workspace", Mock(), Mock(), workflows
+
+    monkeypatch.setattr(workflow_service, "_clients", clients)
+
+    result = workflow_service.find_notebook_jobs(
+        "/Workspace/notebooks/test00/test00.ipynb", max_results=1
+    )
+
+    assert result["is_truncated"] is True
+
+
+@pytest.mark.parametrize("value", [0, 1001, True, "100"])
+def test_find_notebook_jobs_rejects_unsafe_result_limits(value):
+    """Job discovery validates its result limit before cloud discovery."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+
+    with pytest.raises(AidpError, match="max_results"):
+        workflow_service.find_notebook_jobs("/Workspace/example.ipynb", value)
+
+
 @pytest.mark.parametrize("value", [0, 1001, True, "100"])
 def test_list_notebooks_rejects_unsafe_result_limits(value):
     """Notebook listing validates its result limit before cloud discovery."""
@@ -496,12 +624,13 @@ def test_get_job_run_output_rejects_unsafe_character_limits(value):
         workflow_service.get_job_run_output("job-run-key", value)
 
 
-def test_server_registers_the_eight_scoped_tools():
+def test_server_registers_the_nine_scoped_tools():
     """The MCP schema exposes the specified tools without cloud access."""
     names = {tool.name for tool in asyncio.run(MCP.list_tools())}
     assert names == {
         "upload_notebook",
         "list_notebooks",
+        "find_notebook_jobs",
         "ensure_notebook_job",
         "start_notebook_job",
         "get_job_run",

@@ -56,8 +56,9 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for contributor commands.
 * [Catalog tree](catalog_tree/README.md): list a catalog's visible schemas and
   volumes as a hierarchical tree.
 * [AI DP MCP workflow server](specs/002-notebook-workspace-job-mcp.md): upload
-  a local notebook, reconcile a single-task notebook job, submit a job run and
-  inspect its status through Codex.
+  a local notebook, find jobs that reference a workspace notebook, reconcile a
+  single-task notebook job, submit a job run, and inspect its status through
+  Codex.
 
 Both features reuse [aidp_common](aidp_common/README.md) for authentication,
 connection settings, SDK initialization and resource discovery.

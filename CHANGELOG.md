@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* 2026-09-16: Add the read-only `find_notebook_jobs` MCP tool to find
+  configured-workspace workflow jobs that reference an exact workspace notebook.
+
 * 2026-09-16: Add the read-only `list_notebooks` MCP tool for bounded,
   non-recursive notebook metadata discovery in an explicit AI DP workspace
   directory.

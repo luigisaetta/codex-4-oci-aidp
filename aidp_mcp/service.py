@@ -41,6 +41,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TERMINAL_JOB_STATES = {"SUCCESS", "FAILED", "ERROR", "CANCELED", "TIMED_OUT"}
 MAX_JOB_RUN_OUTPUT_CHARACTERS = 12000
 MAX_NOTEBOOK_LIST_RESULTS = 1000
+MAX_NOTEBOOK_JOB_SEARCH_RESULTS = 1000
 
 
 @dataclass(frozen=True)
@@ -154,6 +155,37 @@ def validate_workspace_directory(path):
     if any(part in (".", "..") for part in candidate.parts):
         raise AidpError("Workspace directory path must not contain traversal.")
     return str(candidate)
+
+
+def validate_workspace_notebook_path(path):
+    """Validate an absolute notebook path used for workspace discovery.
+
+    Args:
+        path: Absolute notebook path rooted at ``/Workspace``.
+
+    Returns:
+        str: Normalized absolute notebook path.
+
+    Raises:
+        AidpError: The path is not a safe workspace notebook path.
+    """
+    candidate = PurePosixPath(validate_workspace_directory(path))
+    if candidate.suffix != ".ipynb":
+        raise AidpError("Workspace notebook path must end in .ipynb.")
+    return str(candidate)
+
+
+def _normalized_task_notebook_path(path):
+    """Normalize a remote notebook-task path for a safe equality comparison."""
+    if not isinstance(path, str) or not path:
+        return None
+    candidate = PurePosixPath(path)
+    try:
+        if candidate.is_absolute():
+            return validate_workspace_notebook_path(path)
+        return workspace_content_path(validate_workspace_path(path))
+    except AidpError:
+        return None
 
 
 def encoded_content_path(content_path):
@@ -478,6 +510,27 @@ def _is_supported_job(job):
     )
 
 
+def _matching_notebook_tasks(job, notebook_path):
+    """Return sanitized workspace notebook tasks that use one notebook path."""
+    matches = []
+    for task in getattr(job, "tasks", None) or []:
+        if (
+            getattr(task, "type", None) != "NOTEBOOK_TASK"
+            or getattr(task, "source", None) != "WORKSPACE"
+            or _normalized_task_notebook_path(getattr(task, "notebook_path", None))
+            != notebook_path
+        ):
+            continue
+        cluster_key = getattr(getattr(task, "cluster", None), "cluster_key", None)
+        matches.append(
+            {
+                "task_key": getattr(task, "task_key", None),
+                "cluster_key": cluster_key if isinstance(cluster_key, str) else None,
+            }
+        )
+    return matches
+
+
 class AidpWorkflowService:
     """Perform scoped notebook and workflow operations through typed SDK clients."""
 
@@ -697,6 +750,64 @@ class AidpWorkflowService:
             "name_contains": name_contains,
             "notebooks": summaries,
             "is_truncated": bool(page),
+        }
+
+    def find_notebook_jobs(self, workspace_notebook_path, max_results=100):
+        """Find workflow jobs with a workspace task for one exact notebook.
+
+        Args:
+            workspace_notebook_path: Absolute notebook path rooted at
+                ``/Workspace``.
+            max_results: Maximum matching jobs returned across OCI pages.
+
+        Returns:
+            dict: Sanitized matching job and task metadata with truncation state.
+
+        Raises:
+            AidpError: The inputs are unsafe or AI DP job discovery fails.
+        """
+        notebook_path = validate_workspace_notebook_path(workspace_notebook_path)
+        if (
+            isinstance(max_results, bool)
+            or not isinstance(max_results, int)
+            or not 1 <= max_results <= MAX_NOTEBOOK_JOB_SEARCH_RESULTS
+        ):
+            raise AidpError("max_results must be an integer from 1 through 1000.")
+
+        matches = []
+        page = None
+        with self._clients() as clients:
+            instance_id, workspace_key, _, _, workflows = clients
+            while len(matches) < max_results:
+                response = workflows.list_jobs(
+                    instance_id,
+                    workspace_key,
+                    limit=max_results - len(matches),
+                    page=page,
+                )
+                for summary in getattr(response.data, "items", None) or []:
+                    job_key = _resource_key(summary, "Job")
+                    job = workflows.get_job(instance_id, workspace_key, job_key).data
+                    matching_tasks = _matching_notebook_tasks(job, notebook_path)
+                    if not matching_tasks:
+                        continue
+                    matches.append(
+                        {
+                            "job_key": job_key,
+                            "job_name": getattr(job, "name", None),
+                            "job_path": getattr(job, "path", None),
+                            "matching_tasks": matching_tasks,
+                        }
+                    )
+                    if len(matches) == max_results:
+                        break
+                page = (getattr(response, "headers", None) or {}).get("opc-next-page")
+                if not page:
+                    break
+        return {
+            "workspace_notebook_path": notebook_path,
+            "jobs": matches,
+            "is_truncated": bool(page) or len(matches) == max_results,
         }
 
     def ensure_notebook_job(

@@ -21,6 +21,7 @@ The initial server exposes these operations:
 | --- | --- | --- |
 | `upload_notebook` | Creates or updates workspace content | Validate a local `.ipynb`, resolve the configured instance and workspace, then copy it to an explicit workspace path. |
 | `list_notebooks` | Read-only | Return bounded metadata for notebook objects in one explicit workspace directory, optionally filtered by a local name substring. |
+| `find_notebook_jobs` | Read-only | Return bounded, sanitized workflow-job metadata for jobs with a workspace notebook task that references one exact notebook. |
 | `ensure_notebook_job` | Creates or updates a workflow job | Reconcile one named job containing one workspace-backed notebook task attached to an explicitly selected cluster. |
 | `start_notebook_job` | Creates a job run | Start a run for an existing job and optionally poll it to a terminal state. |
 | `get_job_run` | Read-only | Return the current job-run and task-run status, with sanitized resource identifiers. |
@@ -110,6 +111,19 @@ metadata, tags, ETags, or arbitrary SDK response fields. It does not create,
 modify, execute, or delete any AI DP resource.
 
 ### Job contract
+
+`find_notebook_jobs` accepts an absolute notebook path rooted at `/Workspace`
+and `max_results` from 1 through 1,000 (default 100). It lists jobs in the
+configured workspace through the documented SDK `list_jobs` operation, then
+gets candidate job definitions because job-list summaries do not contain task
+definitions. It follows pagination only until the local match bound is reached.
+It matches only tasks whose type is `NOTEBOOK_TASK`, source is `WORKSPACE`, and
+notebook path equals the requested path after normalizing the SDK's relative
+task paths to `/Workspace/...`. It returns the requested notebook path, matching
+job key, name, storage path, and matching task key and cluster key, plus a
+conservative truncation indicator. It does not return descriptions, schedules,
+parameters, identities, tags, arbitrary task details, or job-run history. The
+operation never creates, modifies, runs, or deletes a resource.
 
 `ensure_notebook_job` accepts `job_name`, `workspace_notebook_path`,
 `cluster_name`, `job_location`, `max_concurrent_runs`, and `apply`. It resolves
@@ -210,7 +224,7 @@ absolute paths beyond the launcher itself.
 * Offline tests cover path validation, notebook validation, identifier
   validation, exact-match discovery, dry-run output, conflict handling, and
   bounded polling using mocked SDK clients.
-* A protocol test starts the stdio MCP server and verifies all eight tool
+* A protocol test starts the stdio MCP server and verifies all nine tool
   schemas without cloud access.
 * `upload_notebook` performs no SDK mutation when `apply=false`, and update
   logic is idempotent when the remote digest matches the local digest.
@@ -245,6 +259,16 @@ Verified 2026-09-15:
   content operations and `WorkflowClient` job/job-run operations. These APIs
   have not been invoked against AI DP for this specification.
 
+Verified 2026-09-16 for notebook-to-job discovery:
+
+* The installed `aidp-python-client` 4.2.1 `WorkflowClient.list_jobs` supports
+  workspace-scoped pagination and returns `JobCollection` summaries; `get_job`
+  returns the task definitions needed to inspect `NotebookTask.notebook_path`
+  and `source`.
+* Oracle's Quick Start constructs a job with a `NOTEBOOK_TASK`, `WORKSPACE`
+  source, and notebook path before running it:
+  <https://docs.oracle.com/en/cloud/paas/ai-data-platform/aiwap/quick-start.html>
+
 ## Implementation status
 
 Implemented locally on 2026-09-16: `list_notebooks` adds bounded, read-only,
@@ -259,6 +283,16 @@ sanitization, and MCP tool registration. Local quality-check results are
 recorded: Black completed without changes, pytest passed 117 offline tests,
 and Pylint rated `aidp_mcp` 10.00/10. Remote verification remains pending and
 requires an explicitly authorized read-only request.
+
+Implemented locally on 2026-09-16: `find_notebook_jobs` adds bounded,
+read-only discovery of workflow jobs that reference one exact workspace
+notebook. It lists job summaries and retrieves only candidate job definitions
+to inspect notebook tasks, normalizing relative task paths for comparison.
+Offline tests cover path validation, matching, task filtering, pagination,
+result bounding, response sanitization, and MCP registration. Black completed
+without further changes, the full offline suite passed 126 tests, and Pylint
+rated `aidp_mcp` 10.00/10. Remote verification remains pending and requires an
+explicitly authorized read-only request.
 
 Implemented locally on 2026-09-16: `set_cluster_state` adds an explicitly
 confirmed start/stop lifecycle operation. Offline tests cover tool registration,
