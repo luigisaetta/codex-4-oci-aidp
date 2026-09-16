@@ -20,8 +20,11 @@ from uuid import uuid4
 
 import oci
 from aidp_python_client.aidataplatform_dp import (
+    CatalogClient,
     ClusterClient,
     NotebookClient,
+    SchemaClient,
+    VolumeClient,
     WorkflowClient,
     WorkspaceClient,
     models,
@@ -43,6 +46,8 @@ MAX_JOB_RUN_OUTPUT_CHARACTERS = 12000
 MAX_JOB_RUN_LIST_RESULTS = 1000
 MAX_NOTEBOOK_LIST_RESULTS = 1000
 MAX_NOTEBOOK_JOB_SEARCH_RESULTS = 1000
+MAX_CATALOG_VOLUME_RESULTS = 1000
+MAX_VOLUME_FILE_RESULTS = 1000
 
 
 @dataclass(frozen=True)
@@ -173,6 +178,46 @@ def validate_workspace_notebook_path(path):
     candidate = PurePosixPath(validate_workspace_directory(path))
     if candidate.suffix != ".ipynb":
         raise AidpError("Workspace notebook path must end in .ipynb.")
+    return str(candidate)
+
+
+def validate_resource_name(value, label):
+    """Validate an exact AI DP display-name selector.
+
+    Args:
+        value: Candidate catalog, schema, or volume display name.
+        label: Human-readable resource type for the error message.
+
+    Returns:
+        str: The unchanged, nonempty display name.
+
+    Raises:
+        AidpError: The selector is not a supported display name.
+    """
+    if not isinstance(value, str) or not value.strip() or len(value) > 255:
+        raise AidpError(f"{label} name must be a nonempty string up to 255 characters.")
+    return value
+
+
+def validate_volume_path(path):
+    """Validate one absolute, traversal-free path within a volume.
+
+    Args:
+        path: Absolute POSIX path rooted at the volume root.
+
+    Returns:
+        str: Normalized POSIX path.
+
+    Raises:
+        AidpError: The path is empty, relative, or contains traversal.
+    """
+    if not isinstance(path, str) or not path.strip():
+        raise AidpError("Volume path must be a nonempty absolute POSIX path.")
+    candidate = PurePosixPath(path)
+    if not candidate.is_absolute() or any(
+        part in (".", "..") for part in candidate.parts
+    ):
+        raise AidpError("Volume path must be absolute and must not contain traversal.")
     return str(candidate)
 
 
@@ -602,6 +647,194 @@ class AidpWorkflowService:
             yield instance_id, workspace_key, clusters, notebooks, workflows
         finally:
             resources.close()
+
+    @contextmanager
+    def _catalog_clients(self):
+        """Create short-lived clients for AI DP catalog discovery.
+
+        Catalog resources are scoped to the AI DP instance, rather than a
+        workspace. Keeping this separate avoids adding workspace objects to
+        read-only volume discovery requests.
+        """
+        config, options = load_auth(self.settings)
+        workbench_options = dict(options)
+        if self.settings.endpoint:
+            workbench_options["service_endpoint"] = self.settings.endpoint
+        resources = ExitStack()
+        identity = managed_client(
+            resources, oci.identity.IdentityClient, config, options
+        )
+        control = managed_client(
+            resources, oci.ai_data_platform.AiDataPlatformClient, config, options
+        )
+        catalogs = managed_client(
+            resources,
+            CatalogClient,
+            config,
+            workbench_options,
+            preserve_timestamps=True,
+        )
+        schemas = managed_client(
+            resources,
+            SchemaClient,
+            config,
+            workbench_options,
+            preserve_timestamps=True,
+        )
+        volumes = managed_client(
+            resources,
+            VolumeClient,
+            config,
+            workbench_options,
+            preserve_timestamps=True,
+        )
+        compartment = resolve_compartment(
+            identity, config["tenancy"], self.settings.compartment
+        )
+        instances = list_instances(control, compartment, self.settings.instance_id)
+        try:
+            if len(instances) != 1:
+                raise AidpError("Exactly one active AI DP instance must be selected.")
+            instance_id = instances[0].id
+            validate_resource_key(instance_id)
+            yield instance_id, catalogs, schemas, volumes
+        finally:
+            resources.close()
+
+    def list_catalog_volumes(self, catalog_name, external_only=True, max_results=100):
+        """List visible volumes below one exact catalog name.
+
+        Args:
+            catalog_name: Exact, case-sensitive catalog display name.
+            external_only: When true, return only external Object Storage volumes.
+            max_results: Maximum returned volumes across all schemas.
+
+        Returns:
+            dict: Sanitized schema-to-volume hierarchy and truncation state.
+
+        Raises:
+            AidpError: The selection is invalid, ambiguous, or inaccessible.
+        """
+        catalog_name = validate_resource_name(catalog_name, "Catalog")
+        if not isinstance(external_only, bool):
+            raise AidpError("external_only must be a boolean.")
+        _validate_result_limit(max_results, MAX_CATALOG_VOLUME_RESULTS)
+        schema_nodes = []
+        matched_count = 0
+        is_truncated = False
+        with self._catalog_clients() as clients:
+            instance_id, catalogs, schemas, volumes = clients
+            catalog = _find_exact_catalog(catalogs, instance_id, catalog_name)
+            schema_items = oci.pagination.list_call_get_all_results(
+                schemas.list_schemas, instance_id, _resource_key(catalog, "Catalog")
+            ).data
+            for schema in _sorted_named_resources(schema_items, "Schema"):
+                volume_items = oci.pagination.list_call_get_all_results(
+                    volumes.list_volumes,
+                    instance_id,
+                    _resource_key(catalog, "Catalog"),
+                    _resource_key(schema, "Schema"),
+                ).data
+                node_volumes = []
+                for summary in _sorted_named_resources(volume_items, "Volume"):
+                    detail = volumes.get_volume(
+                        instance_id, _resource_key(summary, "Volume")
+                    ).data
+                    volume_type = getattr(detail, "volume_type", None)
+                    if external_only and volume_type != "EXTERNAL":
+                        continue
+                    if matched_count == max_results:
+                        is_truncated = True
+                        break
+                    node_volumes.append(_volume_summary(detail))
+                    matched_count += 1
+                if node_volumes:
+                    schema_nodes.append(
+                        {
+                            "display_name": getattr(schema, "display_name", None),
+                            "volumes": node_volumes,
+                        }
+                    )
+                if is_truncated:
+                    break
+        return {
+            "catalog_name": getattr(catalog, "display_name", None),
+            "external_only": external_only,
+            "schemas": schema_nodes,
+            "is_truncated": is_truncated,
+        }
+
+    def list_volume_files(
+        self, catalog_name, schema_name, volume_name, path="/", max_results=100
+    ):
+        """List a bounded recursive folder and file tree in one volume.
+
+        Args:
+            catalog_name: Exact, case-sensitive catalog display name.
+            schema_name: Exact, case-sensitive schema display name.
+            volume_name: Exact, case-sensitive volume display name.
+            path: Absolute volume path from which to recursively list entries.
+            max_results: Maximum returned files and folders.
+
+        Returns:
+            dict: Sanitized recursive hierarchy and truncation state.
+
+        Raises:
+            AidpError: The selection/path is invalid, ambiguous, or inaccessible.
+        """
+        catalog_name = validate_resource_name(catalog_name, "Catalog")
+        schema_name = validate_resource_name(schema_name, "Schema")
+        volume_name = validate_resource_name(volume_name, "Volume")
+        path = validate_volume_path(path)
+        _validate_result_limit(max_results, MAX_VOLUME_FILE_RESULTS)
+        entries = []
+        page = None
+        is_truncated = False
+        with self._catalog_clients() as clients:
+            instance_id, catalogs, schemas, volumes = clients
+            catalog = _find_exact_catalog(catalogs, instance_id, catalog_name)
+            schema = _find_exact_schema(
+                schemas, instance_id, _resource_key(catalog, "Catalog"), schema_name
+            )
+            volume = _find_exact_volume(
+                volumes,
+                instance_id,
+                _resource_key(catalog, "Catalog"),
+                _resource_key(schema, "Schema"),
+                volume_name,
+            )
+            while len(entries) < max_results:
+                response = volumes.list_files(
+                    instance_id,
+                    _resource_key(volume, "Volume"),
+                    path,
+                    is_recursive=True,
+                    limit=max_results - len(entries),
+                    page=page,
+                    sort_by="displayName",
+                    sort_order="ASC",
+                )
+                items = getattr(response.data, "items", None) or []
+                for index, item in enumerate(items):
+                    entries.append(_volume_file_summary(item, path))
+                    if len(entries) == max_results:
+                        is_truncated = index < len(items) - 1
+                        break
+                page = (getattr(response, "headers", None) or {}).get("opc-next-page")
+                if is_truncated or not page:
+                    break
+            is_truncated = is_truncated or bool(page)
+        return {
+            "volume": {
+                "catalog_name": getattr(catalog, "display_name", None),
+                "schema_name": getattr(schema, "display_name", None),
+                "display_name": getattr(volume, "display_name", None),
+                "volume_key": _resource_key(volume, "Volume"),
+            },
+            "path": path,
+            "root": _volume_file_tree(path, entries),
+            "is_truncated": is_truncated,
+        }
 
     def upload_notebook(self, local_path, workspace_path, overwrite=False, apply=False):
         """Plan or copy a local notebook to an AI DP workspace.
@@ -1247,6 +1480,188 @@ class AidpWorkflowService:
             return _task_run_output_response(
                 job_run_key, task_run, output, max_characters
             )
+
+
+def _validate_result_limit(value, maximum):
+    """Validate a bounded MCP collection result limit."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 1 <= value <= maximum
+    ):
+        raise AidpError(f"max_results must be an integer from 1 through {maximum}.")
+
+
+def _sorted_named_resources(resources, label):
+    """Validate and sort remote resource summaries deterministically."""
+    checked = []
+    for resource in resources:
+        display_name = getattr(resource, "display_name", None)
+        if not isinstance(display_name, str) or not display_name:
+            raise AidpError(f"{label} response is missing its display name.")
+        _resource_key(resource, label)
+        checked.append(resource)
+    return sorted(
+        checked,
+        key=lambda item: (
+            item.display_name.casefold(),
+            item.display_name,
+            getattr(item, "key"),
+        ),
+    )
+
+
+def _find_exact_catalog(catalogs, instance_id, catalog_name):
+    """Resolve exactly one visible catalog by its display name."""
+    items = oci.pagination.list_call_get_all_results(
+        catalogs.list_catalogs, instance_id, display_name=catalog_name
+    ).data
+    matches = [
+        item
+        for item in _sorted_named_resources(items, "Catalog")
+        if item.display_name == catalog_name
+    ]
+    if len(matches) != 1:
+        raise AidpError(
+            f"Catalog name has {len(matches)} visible exact matches; select a unique "
+            "catalog."
+        )
+    return matches[0]
+
+
+def _find_exact_schema(schemas, instance_id, catalog_key, schema_name):
+    """Resolve exactly one schema in a selected catalog."""
+    items = oci.pagination.list_call_get_all_results(
+        schemas.list_schemas, instance_id, catalog_key, display_name=schema_name
+    ).data
+    matches = [
+        item
+        for item in _sorted_named_resources(items, "Schema")
+        if item.display_name == schema_name
+    ]
+    if len(matches) != 1:
+        raise AidpError(
+            f"Schema name has {len(matches)} visible exact matches in the catalog."
+        )
+    return matches[0]
+
+
+def _find_exact_volume(volumes, instance_id, catalog_key, schema_key, volume_name):
+    """Resolve exactly one volume in a selected schema."""
+    items = oci.pagination.list_call_get_all_results(
+        volumes.list_volumes,
+        instance_id,
+        catalog_key,
+        schema_key,
+        display_name=volume_name,
+    ).data
+    matches = [
+        item
+        for item in _sorted_named_resources(items, "Volume")
+        if item.display_name == volume_name
+    ]
+    if len(matches) != 1:
+        raise AidpError(
+            f"Volume name has {len(matches)} visible exact matches in the schema."
+        )
+    return matches[0]
+
+
+def _volume_summary(volume):
+    """Return non-sensitive volume metadata needed for exploration."""
+    volume_type = getattr(volume, "volume_type", None)
+    return {
+        "display_name": getattr(volume, "display_name", None),
+        "volume_key": _resource_key(volume, "Volume"),
+        "full_name": getattr(volume, "full_name", None),
+        "volume_type": volume_type,
+        "storage_location": (
+            getattr(volume, "storage_location", None)
+            if volume_type == "EXTERNAL"
+            else None
+        ),
+        "lifecycle_state": getattr(volume, "lifecycle_state", None),
+    }
+
+
+def _volume_file_summary(item, root_path):
+    """Sanitize one volume item and validate it is beneath the requested root."""
+    path = getattr(item, "path", None)
+    if not isinstance(path, str):
+        raise AidpError("Volume file response is missing its path.")
+    normalized_path = validate_volume_path(path)
+    root = PurePosixPath(root_path)
+    candidate = PurePosixPath(normalized_path)
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise AidpError("Volume file response is outside the requested path.") from exc
+    entry_type = getattr(item, "type", None)
+    if entry_type not in ("FILE", "FOLDER"):
+        raise AidpError("Volume file response has an unsupported item type.")
+    display_name = getattr(item, "display_name", None)
+    if not isinstance(display_name, str) or not display_name:
+        raise AidpError("Volume file response is missing its display name.")
+    return {
+        "display_name": display_name,
+        "path": normalized_path,
+        "type": entry_type,
+        "time_created": getattr(item, "time_created", None),
+        "time_updated": getattr(item, "time_updated", None),
+    }
+
+
+def _volume_file_tree(root_path, entries):
+    """Build an ordered hierarchy from sanitized recursive file entries."""
+    root = {
+        "display_name": PurePosixPath(root_path).name or "/",
+        "path": root_path,
+        "type": "FOLDER",
+        "children": {},
+    }
+    root_posix = PurePosixPath(root_path)
+    for entry in entries:
+        relative_parts = PurePosixPath(entry["path"]).relative_to(root_posix).parts
+        if not relative_parts:
+            continue
+        node = root
+        parent_parts = relative_parts[:-1]
+        for index, part in enumerate(parent_parts):
+            parent_path = str(root_posix.joinpath(*relative_parts[: index + 1]))
+            child = node["children"].setdefault(
+                part,
+                {
+                    "display_name": part,
+                    "path": parent_path,
+                    "type": "FOLDER",
+                    "inferred": True,
+                    "children": {},
+                },
+            )
+            node = child
+        leaf_name = relative_parts[-1]
+        current = node["children"].get(leaf_name)
+        if current and current.get("inferred") and entry["type"] == "FOLDER":
+            current.update(entry)
+            current.pop("inferred", None)
+        else:
+            node["children"][leaf_name] = {**entry, "children": {}}
+
+    def render(node):
+        children = node.pop("children")
+        if node["type"] == "FOLDER":
+            ordered = sorted(
+                children.values(),
+                key=lambda child: (
+                    child["type"] != "FOLDER",
+                    child["display_name"].casefold(),
+                    child["display_name"],
+                ),
+            )
+            node["children"] = [render(child) for child in ordered]
+        return node
+
+    return render(root)
 
 
 def _run_state(job_run):

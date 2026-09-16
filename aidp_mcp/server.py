@@ -2,7 +2,7 @@
 Author: L. Saetta
 Date last modified: 2026-09-16
 License: MIT
-Description: Stdio MCP server exposing scoped AI DP notebook workflow and cluster tools.
+Description: Stdio MCP server exposing scoped AI DP notebook, cluster, and volume tools.
 """
 
 from fastmcp import FastMCP
@@ -52,6 +52,36 @@ def find_notebook_jobs(workspace_notebook_path: str, max_results: int = 100) -> 
     This read-only search returns sanitized job and matching-task metadata.
     """
     return _service().find_notebook_jobs(workspace_notebook_path, max_results)
+
+
+@MCP.tool()
+def list_catalog_volumes(
+    catalog_name: str, external_only: bool = True, max_results: int = 100
+) -> dict:
+    """List visible schemas and volumes in one exact AI DP catalog.
+
+    By default only external Object Storage volumes are returned. Results are
+    metadata only; no volume files or content are read.
+    """
+    return _service().list_catalog_volumes(catalog_name, external_only, max_results)
+
+
+@MCP.tool()
+def list_volume_files(
+    catalog_name: str,
+    schema_name: str,
+    volume_name: str,
+    path: str = "/",
+    max_results: int = 100,
+) -> dict:
+    """Return a bounded recursive folder/file tree for one exact volume.
+
+    All resource names are exact and case-sensitive. `path` must be absolute
+    within the volume. The response contains metadata only, never file content.
+    """
+    return _service().list_volume_files(
+        catalog_name, schema_name, volume_name, path, max_results
+    )
 
 
 @MCP.tool()

@@ -75,6 +75,19 @@ def test_validate_workspace_directory_accepts_workspace_root():
     assert service.validate_workspace_directory("/Workspace") == "/Workspace"
 
 
+@pytest.mark.parametrize("value", ["files", "/files/../secret", "", True])
+def test_validate_volume_path_rejects_unsafe_values(value):
+    """Volume exploration accepts only absolute traversal-free POSIX paths."""
+    with pytest.raises(AidpError):
+        service.validate_volume_path(value)
+
+
+def test_validate_volume_path_normalizes_root_and_children():
+    """The volume root and ordinary child path are accepted."""
+    assert service.validate_volume_path("/") == "/"
+    assert service.validate_volume_path("/reports/2026") == "/reports/2026"
+
+
 @pytest.mark.parametrize("value", ["notebooks/test00.ipynb", "/Workspace/jobs"])
 def test_validate_workspace_notebook_path_rejects_nonabsolute_or_nonnotebook(value):
     """Job discovery accepts only one safe absolute notebook path."""
@@ -744,6 +757,190 @@ def test_list_notebooks_rejects_unsafe_result_limits(value):
         workflow_service.list_notebooks(max_results=value)
 
 
+def test_list_catalog_volumes_returns_only_external_metadata(monkeypatch):
+    """External-volume discovery resolves the hierarchy and omits managed data."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+    catalogs, schemas, volumes = Mock(), Mock(), Mock()
+    catalog = SimpleNamespace(key="catalog-key", display_name="catalog")
+    schema_a = SimpleNamespace(key="catalog.a", display_name="a")
+    schema_b = SimpleNamespace(key="catalog.b", display_name="b")
+    managed = SimpleNamespace(key="managed-key", display_name="managed")
+    external_a = SimpleNamespace(key="external-a-key", display_name="external-a")
+    external_b = SimpleNamespace(key="external-b-key", display_name="external-b")
+
+    @contextmanager
+    def catalog_clients():
+        yield "instance", catalogs, schemas, volumes
+
+    monkeypatch.setattr(workflow_service, "_catalog_clients", catalog_clients)
+    monkeypatch.setattr(
+        service.oci.pagination,
+        "list_call_get_all_results",
+        Mock(
+            side_effect=[
+                SimpleNamespace(data=[catalog]),
+                SimpleNamespace(data=[schema_b, schema_a]),
+                SimpleNamespace(data=[managed, external_a]),
+                SimpleNamespace(data=[external_b]),
+            ]
+        ),
+    )
+    volumes.get_volume.side_effect = [
+        SimpleNamespace(
+            data=SimpleNamespace(
+                key="managed-key",
+                display_name="managed",
+                volume_type="MANAGED",
+                full_name="catalog.a.managed",
+                lifecycle_state="ACTIVE",
+            )
+        ),
+        SimpleNamespace(
+            data=SimpleNamespace(
+                key="external-a-key",
+                display_name="external-a",
+                volume_type="EXTERNAL",
+                full_name="catalog.a.external-a",
+                storage_location="oci://bucket@namespace/a/",
+                lifecycle_state="ACTIVE",
+            )
+        ),
+        SimpleNamespace(
+            data=SimpleNamespace(
+                key="external-b-key",
+                display_name="external-b",
+                volume_type="EXTERNAL",
+                full_name="catalog.b.external-b",
+                storage_location="oci://bucket@namespace/b/",
+                lifecycle_state="ACTIVE",
+            )
+        ),
+    ]
+
+    result = workflow_service.list_catalog_volumes("catalog")
+
+    assert result == {
+        "catalog_name": "catalog",
+        "external_only": True,
+        "schemas": [
+            {
+                "display_name": "a",
+                "volumes": [
+                    {
+                        "display_name": "external-a",
+                        "volume_key": "external-a-key",
+                        "full_name": "catalog.a.external-a",
+                        "volume_type": "EXTERNAL",
+                        "storage_location": "oci://bucket@namespace/a/",
+                        "lifecycle_state": "ACTIVE",
+                    }
+                ],
+            },
+            {
+                "display_name": "b",
+                "volumes": [
+                    {
+                        "display_name": "external-b",
+                        "volume_key": "external-b-key",
+                        "full_name": "catalog.b.external-b",
+                        "volume_type": "EXTERNAL",
+                        "storage_location": "oci://bucket@namespace/b/",
+                        "lifecycle_state": "ACTIVE",
+                    }
+                ],
+            },
+        ],
+        "is_truncated": False,
+    }
+
+
+def test_list_volume_files_builds_a_sanitized_recursive_tree(monkeypatch):
+    """File browsing returns hierarchy metadata without arbitrary SDK fields."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+    catalogs, schemas, volumes = Mock(), Mock(), Mock()
+    catalog = SimpleNamespace(key="catalog-key", display_name="catalog")
+    schema = SimpleNamespace(key="catalog.schema", display_name="schema")
+    volume = SimpleNamespace(key="volume-key", display_name="volume")
+
+    @contextmanager
+    def catalog_clients():
+        yield "instance", catalogs, schemas, volumes
+
+    monkeypatch.setattr(workflow_service, "_catalog_clients", catalog_clients)
+    monkeypatch.setattr(
+        service.oci.pagination,
+        "list_call_get_all_results",
+        Mock(
+            side_effect=[
+                SimpleNamespace(data=[catalog]),
+                SimpleNamespace(data=[schema]),
+                SimpleNamespace(data=[volume]),
+            ]
+        ),
+    )
+    volumes.list_files.return_value = SimpleNamespace(
+        data=SimpleNamespace(
+            items=[
+                SimpleNamespace(
+                    display_name="reports",
+                    path="/reports",
+                    type="FOLDER",
+                    time_created="folder-created",
+                    time_updated="folder-updated",
+                    metadata={"sensitive": "metadata"},
+                ),
+                SimpleNamespace(
+                    display_name="summary.csv",
+                    path="/reports/2026/summary.csv",
+                    type="FILE",
+                    time_created="file-created",
+                    time_updated="file-updated",
+                    description="sensitive description",
+                ),
+            ]
+        ),
+        headers={},
+    )
+
+    result = workflow_service.list_volume_files("catalog", "schema", "volume")
+
+    assert result["volume"] == {
+        "catalog_name": "catalog",
+        "schema_name": "schema",
+        "display_name": "volume",
+        "volume_key": "volume-key",
+    }
+    reports = result["root"]["children"][0]
+    assert reports["display_name"] == "reports"
+    assert reports["type"] == "FOLDER"
+    inferred = reports["children"][0]
+    assert inferred["inferred"] is True
+    assert inferred["children"][0] == {
+        "display_name": "summary.csv",
+        "path": "/reports/2026/summary.csv",
+        "type": "FILE",
+        "time_created": "file-created",
+        "time_updated": "file-updated",
+    }
+    assert result["is_truncated"] is False
+    arguments = volumes.list_files.call_args
+    assert arguments.args == ("instance", "volume-key", "/")
+    assert arguments.kwargs["is_recursive"] is True
+
+
+@pytest.mark.parametrize("value", [0, 1001, True, "100"])
+def test_volume_tools_reject_unsafe_result_limits(value):
+    """Volume tool bounds are enforced before remote discovery."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+
+    with pytest.raises(AidpError, match="max_results"):
+        workflow_service.list_catalog_volumes("catalog", max_results=value)
+    with pytest.raises(AidpError, match="max_results"):
+        workflow_service.list_volume_files(
+            "catalog", "schema", "volume", max_results=value
+        )
+
+
 @pytest.mark.parametrize("value", [0, 12001, True, "12"])
 def test_get_job_run_output_rejects_unsafe_character_limits(value):
     """The local output character bound is validated before cloud discovery."""
@@ -753,13 +950,15 @@ def test_get_job_run_output_rejects_unsafe_character_limits(value):
         workflow_service.get_job_run_output("job-run-key", value)
 
 
-def test_server_registers_the_ten_scoped_tools():
+def test_server_registers_the_twelve_scoped_tools():
     """The MCP schema exposes the specified tools without cloud access."""
     names = {tool.name for tool in asyncio.run(MCP.list_tools())}
     assert names == {
         "upload_notebook",
         "list_notebooks",
         "find_notebook_jobs",
+        "list_catalog_volumes",
+        "list_volume_files",
         "list_job_runs",
         "ensure_notebook_job",
         "start_notebook_job",

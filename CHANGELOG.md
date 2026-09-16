@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-16: Add read-only `list_catalog_volumes` and `list_volume_files`
+  MCP tools for discovering external Object Storage volumes and browsing their
+  bounded recursive file hierarchies without reading file content.
+
 * 2026-09-16: Add the read-only `list_job_runs` MCP tool, accepting exactly
   one job name or job key and returning bounded, newest-first run summaries.
 
