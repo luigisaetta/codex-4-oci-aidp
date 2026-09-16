@@ -414,9 +414,7 @@ def test_get_job_run_output_fetches_the_single_task_output(monkeypatch):
         yield "instance", "workspace", Mock(), Mock(), workflows
 
     monkeypatch.setattr(workflow_service, "_clients", clients)
-    list_results = Mock(
-        return_value=SimpleNamespace(data=SimpleNamespace(items=[task_run]))
-    )
+    list_results = Mock(return_value=SimpleNamespace(data=[task_run]))
     monkeypatch.setattr(
         service.oci.pagination,
         "list_call_get_all_results",
@@ -601,6 +599,133 @@ def test_find_notebook_jobs_reports_conservative_truncation(monkeypatch):
     assert result["is_truncated"] is True
 
 
+def test_list_job_runs_resolves_name_and_paginates_newest_first(monkeypatch):
+    """Run listing resolves a name and retains only bounded safe summaries."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+    workflows = Mock()
+    monkeypatch.setattr(
+        service,
+        "_find_job",
+        Mock(
+            return_value=SimpleNamespace(
+                data=SimpleNamespace(key="job-key", name="test00_job")
+            )
+        ),
+    )
+    workflows.list_job_runs.side_effect = [
+        SimpleNamespace(
+            data=SimpleNamespace(
+                items=[
+                    SimpleNamespace(
+                        key="run-new",
+                        state=SimpleNamespace(status="SUCCESS"),
+                        start_time="start-new",
+                        end_time="end-new",
+                    )
+                ]
+            ),
+            headers={"opc-next-page": "next-page"},
+        ),
+        SimpleNamespace(
+            data=SimpleNamespace(
+                items=[
+                    SimpleNamespace(
+                        key="run-old",
+                        state=SimpleNamespace(status="FAILED"),
+                        start_time="start-old",
+                        end_time="end-old",
+                    )
+                ]
+            ),
+            headers={},
+        ),
+    ]
+
+    @contextmanager
+    def clients():
+        yield "instance", "workspace", Mock(), Mock(), workflows
+
+    monkeypatch.setattr(workflow_service, "_clients", clients)
+
+    result = workflow_service.list_job_runs(job_name="test00_job", max_results=2)
+
+    assert result == {
+        "job_key": "job-key",
+        "job_name": "test00_job",
+        "job_runs": [
+            {
+                "job_run_key": "run-new",
+                "state": "SUCCESS",
+                "state_message": None,
+                "start_time": "start-new",
+                "end_time": "end-new",
+            },
+            {
+                "job_run_key": "run-old",
+                "state": "FAILED",
+                "state_message": None,
+                "start_time": "start-old",
+                "end_time": "end-old",
+            },
+        ],
+        "is_truncated": False,
+    }
+    assert workflows.list_job_runs.call_args_list[0].kwargs == {
+        "job_key": ["job-key"],
+        "limit": 2,
+        "page": None,
+        "sort_by": "timeCreated",
+        "sort_order": "DESC",
+    }
+    assert workflows.list_job_runs.call_args_list[1].kwargs["page"] == "next-page"
+
+
+def test_list_job_runs_accepts_a_key_without_job_discovery(monkeypatch):
+    """A supplied key avoids an additional exact-name lookup."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+    workflows = Mock()
+    workflows.list_job_runs.return_value = SimpleNamespace(
+        data=SimpleNamespace(items=[]), headers={}
+    )
+
+    @contextmanager
+    def clients():
+        yield "instance", "workspace", Mock(), Mock(), workflows
+
+    monkeypatch.setattr(workflow_service, "_clients", clients)
+
+    result = workflow_service.list_job_runs(job_key="job-key")
+
+    assert result == {
+        "job_key": "job-key",
+        "job_name": None,
+        "job_runs": [],
+        "is_truncated": False,
+    }
+    workflows.list_jobs.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("job_name", "job_key"),
+    [(None, None), ("test00_job", "job-key"), ("", None), (None, "bad/key")],
+)
+def test_list_job_runs_requires_one_safe_selector(job_name, job_key):
+    """The list request does not allow ambiguous or unsafe job selectors."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+
+    with pytest.raises(AidpError):
+        workflow_service.list_job_runs(job_name=job_name, job_key=job_key)
+
+
+@pytest.mark.parametrize("value", [0, 1001, True, "100"])
+def test_list_job_runs_rejects_unsafe_result_limits(value):
+    """Job-run listing bounds API pagination before cloud discovery."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+
+    with pytest.raises(AidpError, match="max_results"):
+        workflow_service.list_job_runs(job_key="job-key", max_results=value)
+
+
 @pytest.mark.parametrize("value", [0, 1001, True, "100"])
 def test_find_notebook_jobs_rejects_unsafe_result_limits(value):
     """Job discovery validates its result limit before cloud discovery."""
@@ -628,13 +753,14 @@ def test_get_job_run_output_rejects_unsafe_character_limits(value):
         workflow_service.get_job_run_output("job-run-key", value)
 
 
-def test_server_registers_the_nine_scoped_tools():
+def test_server_registers_the_ten_scoped_tools():
     """The MCP schema exposes the specified tools without cloud access."""
     names = {tool.name for tool in asyncio.run(MCP.list_tools())}
     assert names == {
         "upload_notebook",
         "list_notebooks",
         "find_notebook_jobs",
+        "list_job_runs",
         "ensure_notebook_job",
         "start_notebook_job",
         "get_job_run",

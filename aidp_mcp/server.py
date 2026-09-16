@@ -55,6 +55,20 @@ def find_notebook_jobs(workspace_notebook_path: str, max_results: int = 100) -> 
 
 
 @MCP.tool()
+def list_job_runs(
+    job_name: str | None = None,
+    job_key: str | None = None,
+    max_results: int = 25,
+) -> dict:
+    """List newest-first, sanitized runs for one job selected by name or key.
+
+    Provide exactly one selector. This read-only tool returns run keys, states,
+    state messages, timestamps, and a truncation indicator.
+    """
+    return _service().list_job_runs(job_name, job_key, max_results)
+
+
+@MCP.tool()
 def ensure_notebook_job(
     job_name: str,
     workspace_notebook_path: str,

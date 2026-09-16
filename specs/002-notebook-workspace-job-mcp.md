@@ -22,6 +22,7 @@ The initial server exposes these operations:
 | `upload_notebook` | Creates or updates workspace content | Validate a local `.ipynb`, resolve the configured instance and workspace, then copy it to an explicit workspace path. |
 | `list_notebooks` | Read-only | Return bounded metadata for notebook objects in one explicit workspace directory, optionally filtered by a local name substring. |
 | `find_notebook_jobs` | Read-only | Return bounded, sanitized workflow-job metadata for jobs with a workspace notebook task that references one exact notebook. |
+| `list_job_runs` | Read-only | Return bounded, newest-first sanitized run summaries for one workflow job selected by exact name or key. |
 | `ensure_notebook_job` | Creates or updates a workflow job | Reconcile one named job containing one workspace-backed notebook task attached to an explicitly selected cluster. |
 | `start_notebook_job` | Creates a job run | Start a run for an existing job and optionally poll it to a terminal state. |
 | `get_job_run` | Read-only | Return the current job-run and task-run status, with sanitized resource identifiers. |
@@ -125,6 +126,19 @@ conservative truncation indicator. It does not return descriptions, schedules,
 parameters, identities, tags, arbitrary task details, or job-run history. The
 operation never creates, modifies, runs, or deletes a resource.
 
+`list_job_runs` accepts exactly one of `job_name` or `job_key`, plus
+`max_results` from 1 through 1,000 (default 25). A name is resolved through
+the configured workspace's exact job-name lookup; a key is locally validated
+and used directly. It calls the documented job-runs list operation with that
+one job-key filter, `timeCreated` descending order, and OCI pagination capped
+at the local result bound (and the service's 25-item per-page bound). The
+response contains the selected job key, resolved name when name lookup was
+used, and each run's key, state, state message, start time, and end time, plus
+a truncation indicator. It never returns parameters, identities, tags,
+notebook content, output, error traces, arbitrary SDK fields, or runs for a
+different job. The operation does not create, modify, run, or delete any AI DP
+resource.
+
 `ensure_notebook_job` accepts `job_name`, `workspace_notebook_path`,
 `cluster_name`, `job_location`, `max_concurrent_runs`, and `apply`. It resolves
 the cluster by exact name in the selected workspace and rejects zero or
@@ -224,7 +238,7 @@ absolute paths beyond the launcher itself.
 * Offline tests cover path validation, notebook validation, identifier
   validation, exact-match discovery, dry-run output, conflict handling, and
   bounded polling using mocked SDK clients.
-* A protocol test starts the stdio MCP server and verifies all nine tool
+* A protocol test starts the stdio MCP server and verifies all ten tool
   schemas without cloud access.
 * `upload_notebook` performs no SDK mutation when `apply=false`, and update
   logic is idempotent when the remote digest matches the local digest.
@@ -258,6 +272,10 @@ Verified 2026-09-15:
 * The locally installed `aidp-python-client` 4.2.1 exposes `NotebookClient`
   content operations and `WorkflowClient` job/job-run operations. These APIs
   have not been invoked against AI DP for this specification.
+
+* Oracle's job-runs REST reference documents the workspace-scoped job-key
+  filter, pagination, and `timeCreated` sorting. Verified 2026-09-16:
+  <https://docs.oracle.com/en/cloud/paas/ai-data-platform/aiwap/op-aidataplatforms-aidataplatformid-workspaces-workspacekey-jobruns-get.html>
 
 Verified 2026-09-16 for notebook-to-job discovery:
 
@@ -332,6 +350,14 @@ uses the documented `timeCreated` sort field in its paginated task-run request.
 Its new offline regression test verifies that argument is passed. Remote output
 retrieval must be retried after the updated MCP server is started; no resource
 is created, changed, or deleted by that read-only operation.
+
+On 2026-09-16, the retried read-only output request reached task-run discovery
+but failed locally with `'list' object has no attribute 'items'`. The OCI
+pagination helper returns the task-run collection as `response.data` (a list),
+not a collection object with an `items` attribute. The output reader now uses
+that list directly, and offline coverage mirrors the SDK response shape. A
+remote retry remains required after the MCP server is restarted; it is
+read-only and does not create, change, or delete AI DP resources.
 
 On 2026-09-15, the first authorized remote upload dry-run identified a local
 configuration defect: `WORKSPACE_NAME` was present in `.env.example` but was
@@ -422,3 +448,11 @@ then submitted with key `f2443369-1e33-4f92-8009-642369b1e627`; AI DP returned
 the initial state `SUBMITTED`. A subsequent read-only status query returned
 the terminal state `SUCCESS`, with no state message. No cluster lifecycle
 operation was performed.
+
+On 2026-09-16, the new read-only `list_job_runs(job_name="test00_job",
+max_results=1)` operation was verified against the configured AI DP workspace.
+It resolved job key `6964b0ee-02a8-4751-ae1d-85c3f64d8892` and returned the
+latest run `70175134-b690-4132-8bda-c0c816968e1b` in `SUCCESS` state. The
+response reported `is_truncated: true`, correctly indicating that older runs
+exist beyond the requested one-result bound. This verification did not create,
+modify, execute, or delete a resource.

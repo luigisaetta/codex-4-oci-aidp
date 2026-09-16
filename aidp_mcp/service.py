@@ -40,6 +40,7 @@ from aidp_common.settings import connection_parser, validate_connection
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TERMINAL_JOB_STATES = {"SUCCESS", "FAILED", "ERROR", "CANCELED", "TIMED_OUT"}
 MAX_JOB_RUN_OUTPUT_CHARACTERS = 12000
+MAX_JOB_RUN_LIST_RESULTS = 1000
 MAX_NOTEBOOK_LIST_RESULTS = 1000
 MAX_NOTEBOOK_JOB_SEARCH_RESULTS = 1000
 
@@ -810,6 +811,80 @@ class AidpWorkflowService:
             "is_truncated": bool(page) or len(matches) == max_results,
         }
 
+    def list_job_runs(self, job_name=None, job_key=None, max_results=25):
+        """List bounded, newest-first run summaries for one workflow job.
+
+        Exactly one job selector is required. A name is resolved to an exact
+        visible job before the run query; a key is used directly after local
+        validation.
+
+        Args:
+            job_name: Exact workflow job name, as an alternative to ``job_key``.
+            job_key: Existing workflow job key, as an alternative to ``job_name``.
+            max_results: Maximum run summaries returned across OCI pages.
+
+        Returns:
+            dict: Selected job reference, sanitized run summaries, and a
+            truncation indicator.
+
+        Raises:
+            AidpError: The selectors are invalid or ambiguous, or the AI DP
+                request fails.
+        """
+        if (job_name is None) == (job_key is None):
+            raise AidpError("Provide exactly one of job_name or job_key.")
+        if job_name is not None and (
+            not isinstance(job_name, str) or not job_name.strip()
+        ):
+            raise AidpError("job_name must be a nonempty string.")
+        if job_key is not None:
+            validate_resource_key(job_key)
+        if (
+            isinstance(max_results, bool)
+            or not isinstance(max_results, int)
+            or not 1 <= max_results <= MAX_JOB_RUN_LIST_RESULTS
+        ):
+            raise AidpError("max_results must be an integer from 1 through 1000.")
+
+        page = None
+        runs = []
+        with self._clients() as clients:
+            instance_id, workspace_key, _, _, workflows = clients
+            if job_name is not None:
+                job = _find_job(workflows, instance_id, workspace_key, job_name)
+                if job is None:
+                    raise AidpError(f"No visible job is named {job_name!r}.")
+                selected_job_key = _resource_key(job.data, "Job")
+                selected_job_name = getattr(job.data, "name", job_name)
+            else:
+                selected_job_key = job_key
+                selected_job_name = None
+
+            while len(runs) < max_results:
+                response = workflows.list_job_runs(
+                    instance_id,
+                    workspace_key,
+                    job_key=[selected_job_key],
+                    limit=min(25, max_results - len(runs)),
+                    page=page,
+                    sort_by="timeCreated",
+                    sort_order="DESC",
+                )
+                for item in getattr(response.data, "items", None) or []:
+                    runs.append(_run_response(item, _resource_key(item, "Job run")))
+                    if len(runs) == max_results:
+                        break
+                page = (getattr(response, "headers", None) or {}).get("opc-next-page")
+                if not page:
+                    break
+
+        return {
+            "job_key": selected_job_key,
+            "job_name": selected_job_name,
+            "job_runs": runs,
+            "is_truncated": bool(page),
+        }
+
     def ensure_notebook_job(
         self,
         job_name,
@@ -1155,7 +1230,7 @@ class AidpWorkflowService:
                 # AI DP rejects an unspecified sortBy value as null. Specify a
                 # documented field so the SDK request is accepted consistently.
                 sort_by="timeCreated",
-            ).data.items
+            ).data
             if len(task_runs) != 1:
                 raise AidpError("Job run must contain exactly one task run.")
             task_run = task_runs[0]

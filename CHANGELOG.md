@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* 2026-09-16: Add the read-only `list_job_runs` MCP tool, accepting exactly
+  one job name or job key and returning bounded, newest-first run summaries.
+
+* 2026-09-16: Fix AI DP notebook job-output retrieval to consume the SDK
+  pagination helper's task-run list directly.
+
 * 2026-09-16: Specify the documented `timeCreated` task-run ordering when
   retrieving notebook job output, avoiding AI DP's rejected null `sortBy`
   request value.
