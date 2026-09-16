@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-16: Add the read-only `list_notebooks` MCP tool for bounded,
+  non-recursive notebook metadata discovery in an explicit AI DP workspace
+  directory.
+
 * 2026-09-16: Add the confirmed `set_cluster_state` MCP tool to start or stop
   an exact AI DP cluster, with ETag-guarded no-retry submission and optional
   bounded waiting before a notebook job is started.

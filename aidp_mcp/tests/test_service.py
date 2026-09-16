@@ -63,6 +63,18 @@ def test_validate_workspace_path_normalizes_valid_notebook_path():
     assert service.validate_workspace_path("jobs/example.ipynb") == "jobs/example.ipynb"
 
 
+@pytest.mark.parametrize("value", ["Workspace", "/Shared", "/Workspace/../unsafe", ""])
+def test_validate_workspace_directory_rejects_unsafe_values(value):
+    """Notebook listing is restricted to an absolute workspace directory."""
+    with pytest.raises(AidpError):
+        service.validate_workspace_directory(value)
+
+
+def test_validate_workspace_directory_accepts_workspace_root():
+    """The workspace root is an allowed read-only listing target."""
+    assert service.validate_workspace_directory("/Workspace") == "/Workspace"
+
+
 def test_notebook_service_path_is_absolute_and_url_encoded():
     """Notebook API paths preserve the service root and encode path separators."""
     content_path = service.workspace_content_path("jobs/example.ipynb")
@@ -72,6 +84,30 @@ def test_notebook_service_path_is_absolute_and_url_encoded():
         service.encoded_content_path(content_path)
         == "%2FWorkspace%2Fjobs%2Fexample.ipynb"
     )
+
+
+def test_workspace_objects_request_uses_notebook_filter_and_page_token():
+    """Listing calls the documented workspace-object endpoint with safe filters."""
+    notebooks = SimpleNamespace(base_client=Mock())
+
+    service.workspace_objects_request(
+        notebooks,
+        instance_id="instance",
+        workspace_key="workspace",
+        path="/Workspace",
+        limit=25,
+        page="next-page",
+    )
+
+    arguments = notebooks.base_client.call_api.call_args.kwargs
+    assert arguments["method"] == "GET"
+    assert arguments["query_params"] == {
+        "path": "/Workspace",
+        "type": "NOTEBOOK",
+        "limit": 25,
+        "page": "next-page",
+    }
+    assert arguments["response_type"] == "WorkspaceObjectCollection"
 
 
 def test_internal_error_for_missing_content_is_a_create_plan():
@@ -380,6 +416,77 @@ def test_get_job_run_output_fetches_the_single_task_output(monkeypatch):
     assert workflows.fetch_output.call_args.args[3].output_key == "output"
 
 
+def test_list_notebooks_paginates_and_filters_metadata(monkeypatch):
+    """Listing returns bounded matching summaries without notebook content."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+    notebooks = Mock()
+    first_page = SimpleNamespace(
+        data=SimpleNamespace(
+            items=[
+                SimpleNamespace(
+                    display_name="Other.ipynb",
+                    path="/Workspace/Other.ipynb",
+                    type="NOTEBOOK",
+                    time_created="first",
+                    time_updated="first-update",
+                    content="sensitive",
+                )
+            ]
+        ),
+        headers={"opc-next-page": "next-page"},
+    )
+    second_page = SimpleNamespace(
+        data=SimpleNamespace(
+            items=[
+                SimpleNamespace(
+                    display_name="test00.ipynb",
+                    path="/Workspace/test00.ipynb",
+                    type="NOTEBOOK",
+                    time_created="second",
+                    time_updated="second-update",
+                    content="sensitive",
+                )
+            ]
+        ),
+        headers={},
+    )
+
+    @contextmanager
+    def clients():
+        yield "instance", "workspace", Mock(), notebooks, Mock()
+
+    monkeypatch.setattr(workflow_service, "_clients", clients)
+    request = Mock(side_effect=[first_page, second_page])
+    monkeypatch.setattr(service, "workspace_objects_request", request)
+
+    result = workflow_service.list_notebooks(name_contains="TEST00", max_results=5)
+
+    assert result == {
+        "path": "/Workspace",
+        "name_contains": "TEST00",
+        "notebooks": [
+            {
+                "display_name": "test00.ipynb",
+                "path": "/Workspace/test00.ipynb",
+                "type": "NOTEBOOK",
+                "time_created": "second",
+                "time_updated": "second-update",
+            }
+        ],
+        "is_truncated": False,
+    }
+    assert request.call_args_list[1].kwargs["page"] == "next-page"
+
+
+@pytest.mark.parametrize("value", [0, 1001, True, "100"])
+def test_list_notebooks_rejects_unsafe_result_limits(value):
+    """Notebook listing validates its result limit before cloud discovery."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+
+    with pytest.raises(AidpError, match="max_results"):
+        workflow_service.list_notebooks(max_results=value)
+
+
 @pytest.mark.parametrize("value", [0, 12001, True, "12"])
 def test_get_job_run_output_rejects_unsafe_character_limits(value):
     """The local output character bound is validated before cloud discovery."""
@@ -389,11 +496,12 @@ def test_get_job_run_output_rejects_unsafe_character_limits(value):
         workflow_service.get_job_run_output("job-run-key", value)
 
 
-def test_server_registers_the_seven_scoped_tools():
+def test_server_registers_the_eight_scoped_tools():
     """The MCP schema exposes the specified tools without cloud access."""
     names = {tool.name for tool in asyncio.run(MCP.list_tools())}
     assert names == {
         "upload_notebook",
+        "list_notebooks",
         "ensure_notebook_job",
         "start_notebook_job",
         "get_job_run",

@@ -6,7 +6,7 @@ Codex can create and edit a Jupyter notebook in this repository, but the
 notebook must then be copied to an Oracle AI Data Platform (AI DP) workspace
 and run as a notebook task on a selected cluster. The current repository has
 separate cluster and catalog commands but no reusable operation for notebook
-content or workflow jobs.
+content, notebook discovery, or workflow jobs.
 
 ## Scope
 
@@ -20,6 +20,7 @@ The initial server exposes these operations:
 | Tool | Side effect | Intended behavior |
 | --- | --- | --- |
 | `upload_notebook` | Creates or updates workspace content | Validate a local `.ipynb`, resolve the configured instance and workspace, then copy it to an explicit workspace path. |
+| `list_notebooks` | Read-only | Return bounded metadata for notebook objects in one explicit workspace directory, optionally filtered by a local name substring. |
 | `ensure_notebook_job` | Creates or updates a workflow job | Reconcile one named job containing one workspace-backed notebook task attached to an explicitly selected cluster. |
 | `start_notebook_job` | Creates a job run | Start a run for an existing job and optionally poll it to a terminal state. |
 | `get_job_run` | Read-only | Return the current job-run and task-run status, with sanitized resource identifiers. |
@@ -61,6 +62,7 @@ Codex writes local notebook
 aidp-mcp (stdio, local Python 3.11)
           |
           +-- NotebookClient: create/update workspace content
+          +-- NotebookClient base client: list filtered workspace notebook objects
           +-- ClusterClient: resolve and validate an active cluster
           +-- ClusterClient: explicitly start or stop a selected cluster
           +-- WorkflowClient: create/update job, create job run, poll status
@@ -90,6 +92,22 @@ whether creation, update, or no change would occur after read-only discovery.
 With `apply=true`, it uses
 the documented SDK notebook-content operation and returns only the destination
 path and digest. It never prints notebook cell content.
+
+### Notebook discovery contract
+
+`list_notebooks` accepts an absolute `path` rooted at `/Workspace`, optional
+`name_contains`, and `max_results` from 1 through 1,000 (default 100). It
+uses Oracle's documented workspace-objects list endpoint with `type=NOTEBOOK`
+and follows OCI pagination only until the local result bound is reached. The
+operation lists the explicit directory only; it is not recursive. The optional
+name filter is a case-insensitive substring match applied locally because the
+documented remote `displayName` filter is exact-match only.
+
+The response contains only each matching object's display name, full path,
+type, creation time, and update time, plus the requested path and a truncation
+indicator. It never returns notebook content, creator identity, descriptions,
+metadata, tags, ETags, or arbitrary SDK response fields. It does not create,
+modify, execute, or delete any AI DP resource.
 
 ### Job contract
 
@@ -152,8 +170,8 @@ for the active Codex session.
 * Generating notebooks; Codex performs that local editing work.
 * Resizing, creating, restarting, or automatically starting/stopping clusters
   as a side effect of job submission.
-* Broad workspace browsing, catalog/volume access, arbitrary file upload, or
-  arbitrary OCI command execution.
+* Recursive workspace browsing, catalog/volume access, arbitrary file upload,
+  or arbitrary OCI command execution.
 * Schedules, automatic retry beyond the job definition, cleanup by name
   pattern, automatic deletion of notebooks/jobs/runs, or cost estimation.
 * Claiming that local tests prove AI DP runtime compatibility.
@@ -192,7 +210,7 @@ absolute paths beyond the launcher itself.
 * Offline tests cover path validation, notebook validation, identifier
   validation, exact-match discovery, dry-run output, conflict handling, and
   bounded polling using mocked SDK clients.
-* A protocol test starts the stdio MCP server and verifies all seven tool
+* A protocol test starts the stdio MCP server and verifies all eight tool
   schemas without cloud access.
 * `upload_notebook` performs no SDK mutation when `apply=false`, and update
   logic is idempotent when the remote digest matches the local digest.
@@ -220,11 +238,27 @@ Verified 2026-09-15:
 * Oracle's cluster REST reference documents the `start` and `stop` actions and
   their cluster-specific endpoints (verified 2026-09-16):
   <https://docs.oracle.com/en/cloud/paas/ai-data-platform/aiwap/api-cluster.html>
+* Oracle's workspace-objects REST reference documents the required `path`,
+  `type` filter, pagination, and summary response fields (verified 2026-09-16):
+  <https://docs.oracle.com/en/cloud/paas/ai-data-platform/aiwap/op-aidataplatforms-aidataplatformid-workspaces-workspacekey-objects-get.html>
 * The locally installed `aidp-python-client` 4.2.1 exposes `NotebookClient`
   content operations and `WorkflowClient` job/job-run operations. These APIs
   have not been invoked against AI DP for this specification.
 
 ## Implementation status
+
+Implemented locally on 2026-09-16: `list_notebooks` adds bounded, read-only,
+non-recursive discovery of notebook metadata in an explicit `/Workspace`
+directory. It uses the documented workspace-objects endpoint with
+`type=NOTEBOOK`; the installed AI DP SDK 4.2.1 does not expose this operation
+as a typed `WorkspaceClient` method, so the server uses the configured,
+authenticated generated client's base client, as it already does for notebook
+content paths. Offline tests cover path and result-bound validation, exact
+request construction, pagination, local case-insensitive filtering, response
+sanitization, and MCP tool registration. Local quality-check results are
+recorded: Black completed without changes, pytest passed 117 offline tests,
+and Pylint rated `aidp_mcp` 10.00/10. Remote verification remains pending and
+requires an explicitly authorized read-only request.
 
 Implemented locally on 2026-09-16: `set_cluster_state` adds an explicitly
 confirmed start/stop lifecycle operation. Offline tests cover tool registration,

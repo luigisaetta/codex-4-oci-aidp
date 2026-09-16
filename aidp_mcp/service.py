@@ -40,6 +40,7 @@ from aidp_common.settings import connection_parser, validate_connection
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TERMINAL_JOB_STATES = {"SUCCESS", "FAILED", "ERROR", "CANCELED", "TIMED_OUT"}
 MAX_JOB_RUN_OUTPUT_CHARACTERS = 12000
+MAX_NOTEBOOK_LIST_RESULTS = 1000
 
 
 @dataclass(frozen=True)
@@ -133,6 +134,28 @@ def workspace_content_path(workspace_path):
     return f"/Workspace/{workspace_path}"
 
 
+def validate_workspace_directory(path):
+    """Validate an absolute AI DP workspace directory path.
+
+    Args:
+        path: Absolute directory path rooted at ``/Workspace``.
+
+    Returns:
+        str: Normalized absolute workspace directory path.
+
+    Raises:
+        AidpError: The path is not a safe workspace directory.
+    """
+    if not isinstance(path, str) or not path.strip():
+        raise AidpError("Workspace directory path must be a nonempty string.")
+    candidate = PurePosixPath(path)
+    if not candidate.is_absolute() or candidate.parts[1:2] != ("Workspace",):
+        raise AidpError("Workspace directory path must be rooted at /Workspace.")
+    if any(part in (".", "..") for part in candidate.parts):
+        raise AidpError("Workspace directory path must not contain traversal.")
+    return str(candidate)
+
+
 def encoded_content_path(content_path):
     """Encode an absolute notebook path for the SDK URL path parameter.
 
@@ -181,6 +204,40 @@ def notebook_content_request(
         },
         body=body,
         response_type="Content",
+    )
+
+
+def workspace_objects_request(
+    notebooks, *, instance_id, workspace_key, path, limit, page=None
+):
+    """List notebook workspace-object summaries through the documented API.
+
+    Args:
+        notebooks: Generated notebook client with configured signer and endpoint.
+        instance_id: Selected AI DP instance OCID.
+        workspace_key: Selected workspace key.
+        path: Absolute workspace directory path.
+        limit: Maximum summaries to return in this page.
+        page: Optional OCI page token from the preceding response.
+
+    Returns:
+        oci.response.Response: A page of ``WorkspaceObjectCollection`` data.
+    """
+    query_params = {"path": path, "type": "NOTEBOOK", "limit": limit}
+    if page:
+        query_params["page"] = page
+    return notebooks.base_client.call_api(
+        resource_path=(
+            "/aiDataPlatforms/{aiDataPlatformId}/workspaces/{workspaceKey}/objects"
+        ),
+        method="GET",
+        path_params={
+            "aiDataPlatformId": instance_id,
+            "workspaceKey": workspace_key,
+        },
+        query_params=query_params,
+        header_params={"accept": "application/json"},
+        response_type="WorkspaceObjectCollection",
     )
 
 
@@ -586,6 +643,62 @@ class AidpWorkflowService:
             )
             return result
 
+    def list_notebooks(self, path="/Workspace", name_contains=None, max_results=100):
+        """List a workspace directory's notebook summaries without content.
+
+        Args:
+            path: Absolute workspace directory, rooted at ``/Workspace``.
+            name_contains: Optional case-insensitive substring to match locally.
+            max_results: Maximum notebook summaries returned across OCI pages.
+
+        Returns:
+            dict: Sanitized notebook summaries and truncation metadata.
+
+        Raises:
+            AidpError: The inputs are unsafe or the AI DP request fails.
+        """
+        directory = validate_workspace_directory(path)
+        if name_contains is not None and not isinstance(name_contains, str):
+            raise AidpError("name_contains must be a string or null.")
+        if not isinstance(max_results, int) or isinstance(max_results, bool):
+            raise AidpError("max_results must be an integer from 1 through 1000.")
+        if not 1 <= max_results <= MAX_NOTEBOOK_LIST_RESULTS:
+            raise AidpError("max_results must be an integer from 1 through 1000.")
+
+        match = name_contains.casefold() if name_contains else None
+        summaries = []
+        page = None
+        with self._clients() as clients:
+            instance_id, workspace_key, _, notebooks, _ = clients
+            while len(summaries) < max_results:
+                response = workspace_objects_request(
+                    notebooks,
+                    instance_id=instance_id,
+                    workspace_key=workspace_key,
+                    path=directory,
+                    limit=max_results - len(summaries),
+                    page=page,
+                )
+                for item in getattr(response.data, "items", None) or []:
+                    display_name = getattr(item, "display_name", None)
+                    if match and (
+                        not isinstance(display_name, str)
+                        or match not in display_name.casefold()
+                    ):
+                        continue
+                    summaries.append(_notebook_summary(item))
+                    if len(summaries) == max_results:
+                        break
+                page = (getattr(response, "headers", None) or {}).get("opc-next-page")
+                if not page:
+                    break
+        return {
+            "path": directory,
+            "name_contains": name_contains,
+            "notebooks": summaries,
+            "is_truncated": bool(page),
+        }
+
     def ensure_notebook_job(
         self,
         job_name,
@@ -978,6 +1091,17 @@ def _cluster_response(cluster):
         "driver": _shape_response(getattr(cluster, "driver_config", None)),
         "workers": _worker_response(getattr(cluster, "worker_config", None)),
         "auto_termination_minutes": getattr(cluster, "auto_termination_minutes", None),
+    }
+
+
+def _notebook_summary(item):
+    """Return selected notebook metadata without creator, tags, or content."""
+    return {
+        "display_name": getattr(item, "display_name", None),
+        "path": getattr(item, "path", None),
+        "type": getattr(item, "type", None),
+        "time_created": getattr(item, "time_created", None),
+        "time_updated": getattr(item, "time_updated", None),
     }
 
 

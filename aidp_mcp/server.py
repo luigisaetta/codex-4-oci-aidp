@@ -31,6 +31,20 @@ def upload_notebook(
 
 
 @MCP.tool()
+def list_notebooks(
+    path: str = "/Workspace",
+    name_contains: str | None = None,
+    max_results: int = 100,
+) -> dict:
+    """List notebook metadata in one AI DP workspace directory, without content.
+
+    The optional name filter is a case-insensitive substring match. The path
+    must be absolute and rooted at `/Workspace`; listing is non-recursive.
+    """
+    return _service().list_notebooks(path, name_contains, max_results)
+
+
+@MCP.tool()
 def ensure_notebook_job(
     job_name: str,
     workspace_notebook_path: str,
