@@ -64,7 +64,11 @@ Inputs:
 
 The tool resolves the catalog, schema and volume to an opaque volume key, then
 calls `VolumeClient.list_files` with `is_recursive=true`, `sort_by="displayName"`
-and `sort_order="ASC"`. It returns a `root` tree with `FOLDER` and `FILE`
+and `sort_order="ASC"`. Public `path` values are rooted at the selected volume:
+for example, `/datasets` is translated to AI DP's
+`/Volumes/<catalog>/<schema>/<volume>/datasets` mount path. Returned paths have
+that mount prefix removed, so callers never need to know it. It returns a `root`
+tree with `FOLDER` and `FILE`
 nodes, each containing only `display_name`, `path`, `type`, `time_created` and
 `time_updated`. It uses paths to construct missing intermediate folder nodes;
 such nodes are marked `inferred: true`. It returns no file data, metadata,
@@ -100,8 +104,8 @@ Sources verified 2026-09-16:
 ## Acceptance and verification
 
 * Offline tests cover exact resource resolution, external-only filtering,
-  bounded pagination, sanitized summaries, unsafe input rejection, tree
-  construction and malformed remote paths.
+  bounded pagination, mount-path translation, sanitized summaries, unsafe input
+  rejection, tree construction and malformed remote paths.
 * The MCP schema exposes exactly the two documented tools and their default
   arguments without cloud access.
 * Run Black, Pylint and pytest in the `codex-4-oci-aidp` Conda environment.
@@ -116,5 +120,13 @@ external-volume filtering, recursive tree construction, result limits and safe
 path validation. In the `codex-4-oci-aidp` Conda environment, Black check
 passed for `aidp_mcp`, Pylint scored 10.00/10 for `aidp_mcp`, and the full test
 suite passed: 147 tests on Python 3.11.0. `git diff --check` also passed.
-No live AI DP request was made for this implementation; remote acceptance
-remains pending user testing from a new Codex session.
+
+2026-09-16 correction: live exploration showed that AI DP returns file paths
+under `/Volumes/<catalog>/<schema>/<volume>`, even though this tool's contract
+defines its public paths relative to the selected volume. The implementation
+now translates both directions. Offline regression coverage verifies
+`/datasets` is sent as the corresponding mount path and that returned child
+paths are `/datasets/...`. Black check passed for `aidp_mcp`, Pylint scored
+10.00/10 for `aidp_mcp`, the full suite passed: 148 tests on Python 3.11.0,
+and `git diff --check` passed. Remote acceptance of the corrected server
+remains pending after the MCP process is reloaded.

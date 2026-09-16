@@ -883,7 +883,7 @@ def test_list_volume_files_builds_a_sanitized_recursive_tree(monkeypatch):
             items=[
                 SimpleNamespace(
                     display_name="reports",
-                    path="/reports",
+                    path="/Volumes/catalog/schema/volume/reports",
                     type="FOLDER",
                     time_created="folder-created",
                     time_updated="folder-updated",
@@ -891,7 +891,7 @@ def test_list_volume_files_builds_a_sanitized_recursive_tree(monkeypatch):
                 ),
                 SimpleNamespace(
                     display_name="summary.csv",
-                    path="/reports/2026/summary.csv",
+                    path="/Volumes/catalog/schema/volume/reports/2026/summary.csv",
                     type="FILE",
                     time_created="file-created",
                     time_updated="file-updated",
@@ -924,8 +924,76 @@ def test_list_volume_files_builds_a_sanitized_recursive_tree(monkeypatch):
     }
     assert result["is_truncated"] is False
     arguments = volumes.list_files.call_args
-    assert arguments.args == ("instance", "volume-key", "/")
+    assert arguments.args == (
+        "instance",
+        "volume-key",
+        "/Volumes/catalog/schema/volume",
+    )
     assert arguments.kwargs["is_recursive"] is True
+
+
+def test_list_volume_files_translates_a_logical_child_path(monkeypatch):
+    """A public volume path is translated to, and returned from, the AI DP mount."""
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
+    catalogs, schemas, volumes = Mock(), Mock(), Mock()
+    catalog = SimpleNamespace(key="catalog-key", display_name="catalog")
+    schema = SimpleNamespace(key="catalog.schema", display_name="schema")
+    volume = SimpleNamespace(key="volume-key", display_name="volume")
+
+    @contextmanager
+    def catalog_clients():
+        yield "instance", catalogs, schemas, volumes
+
+    monkeypatch.setattr(workflow_service, "_catalog_clients", catalog_clients)
+    monkeypatch.setattr(
+        service.oci.pagination,
+        "list_call_get_all_results",
+        Mock(
+            side_effect=[
+                SimpleNamespace(data=[catalog]),
+                SimpleNamespace(data=[schema]),
+                SimpleNamespace(data=[volume]),
+            ]
+        ),
+    )
+    volumes.list_files.return_value = SimpleNamespace(
+        data=SimpleNamespace(
+            items=[
+                SimpleNamespace(
+                    display_name="train.jsonl",
+                    path="/Volumes/catalog/schema/volume/datasets/train.jsonl",
+                    type="FILE",
+                    time_created="created",
+                    time_updated="updated",
+                )
+            ]
+        ),
+        headers={},
+    )
+
+    result = workflow_service.list_volume_files(
+        "catalog", "schema", "volume", path="/datasets"
+    )
+
+    assert volumes.list_files.call_args.args == (
+        "instance",
+        "volume-key",
+        "/Volumes/catalog/schema/volume/datasets",
+    )
+    assert result["root"] == {
+        "display_name": "datasets",
+        "path": "/datasets",
+        "type": "FOLDER",
+        "children": [
+            {
+                "display_name": "train.jsonl",
+                "path": "/datasets/train.jsonl",
+                "type": "FILE",
+                "time_created": "created",
+                "time_updated": "updated",
+            }
+        ],
+    }
 
 
 @pytest.mark.parametrize("value", [0, 1001, True, "100"])
