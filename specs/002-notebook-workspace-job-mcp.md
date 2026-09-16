@@ -325,6 +325,14 @@ passed (24 tests) and Pylint rated `aidp_mcp` 10.00/10. No new AI DP API call
 was made; remote verification remains pending and must be explicitly
 authorized.
 
+On 2026-09-16, an authorized `get_job_run_output` request for successful run
+`70175134-b690-4132-8bda-c0c816968e1b` was rejected by AI DP with
+`InvalidParameter: Invalid SortBy: null`. The output reader now explicitly
+uses the documented `timeCreated` sort field in its paginated task-run request.
+Its new offline regression test verifies that argument is passed. Remote output
+retrieval must be retried after the updated MCP server is started; no resource
+is created, changed, or deleted by that read-only operation.
+
 On 2026-09-15, the first authorized remote upload dry-run identified a local
 configuration defect: `WORKSPACE_NAME` was present in `.env.example` but was
 not exposed by the shared connection parser. The parser was corrected and its

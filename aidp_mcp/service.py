@@ -1152,6 +1152,9 @@ class AidpWorkflowService:
                 instance_id,
                 workspace_key,
                 job_run_key,
+                # AI DP rejects an unspecified sortBy value as null. Specify a
+                # documented field so the SDK request is accepted consistently.
+                sort_by="timeCreated",
             ).data.items
             if len(task_runs) != 1:
                 raise AidpError("Job run must contain exactly one task run.")

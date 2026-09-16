@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-16: Specify the documented `timeCreated` task-run ordering when
+  retrieving notebook job output, avoiding AI DP's rejected null `sortBy`
+  request value.
+
 * 2026-09-16: Add the read-only `find_notebook_jobs` MCP tool to find
   configured-workspace workflow jobs that reference an exact workspace notebook.
 

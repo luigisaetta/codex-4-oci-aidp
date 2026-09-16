@@ -414,10 +414,13 @@ def test_get_job_run_output_fetches_the_single_task_output(monkeypatch):
         yield "instance", "workspace", Mock(), Mock(), workflows
 
     monkeypatch.setattr(workflow_service, "_clients", clients)
+    list_results = Mock(
+        return_value=SimpleNamespace(data=SimpleNamespace(items=[task_run]))
+    )
     monkeypatch.setattr(
         service.oci.pagination,
         "list_call_get_all_results",
-        Mock(return_value=SimpleNamespace(data=SimpleNamespace(items=[task_run]))),
+        list_results,
     )
 
     result = workflow_service.get_job_run_output("job-run-key", 20)
@@ -429,6 +432,7 @@ def test_get_job_run_output_fetches_the_single_task_output(monkeypatch):
         "task-run-key",
     )
     assert workflows.fetch_output.call_args.args[3].output_key == "output"
+    assert list_results.call_args.kwargs["sort_by"] == "timeCreated"
 
 
 def test_list_notebooks_paginates_and_filters_metadata(monkeypatch):
