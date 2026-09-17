@@ -289,6 +289,14 @@ Verified 2026-09-16 for notebook-to-job discovery:
 
 ## Implementation status
 
+Documentation updated 2026-09-17: [`aidp_mcp/README.md`](../aidp_mcp/README.md)
+is the user-facing tool inventory and local-client guide. It documents all 12
+currently registered tools, their read-only or mutation status, the stdio-only
+transport, prerequisites, safety boundaries, and the Codex CLI registration
+and verification flow. The Codex commands and local-stdio configuration were
+verified against the official OpenAI MCP documentation on 2026-09-17. No OCI
+request was made for this documentation update.
+
 Implemented locally on 2026-09-16: `list_notebooks` adds bounded, read-only,
 non-recursive discovery of notebook metadata in an explicit `/Workspace`
 directory. It uses the documented workspace-objects endpoint with

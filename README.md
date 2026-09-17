@@ -55,10 +55,9 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for contributor commands.
   stop a Workbench cluster using Python, OCI authentication and `.env` settings.
 * [Catalog tree](catalog_tree/README.md): list a catalog's visible schemas and
   volumes as a hierarchical tree.
-* [AI DP MCP workflow server](specs/002-notebook-workspace-job-mcp.md): upload
-  a local notebook, find jobs that reference a workspace notebook, reconcile a
-  single-task notebook job, submit a job run, and inspect its status through
-  Codex.
+* [AI DP MCP workflow server](aidp_mcp/README.md): discover AI DP notebooks,
+  jobs, clusters, catalogs and volumes; upload notebooks; and run managed
+  single-notebook jobs through Codex.
 
 Both features reuse [aidp_common](aidp_common/README.md) for authentication,
 connection settings, SDK initialization and resource discovery.

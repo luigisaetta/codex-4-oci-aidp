@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-17: Add `aidp_mcp/README.md` with the complete MCP tool inventory,
+  stdio transport rationale, prerequisites, safety boundaries, and Codex setup
+  instructions.
+
 * 2026-09-16: Make `list_volume_files` explicitly inspect unexpanded folders
   when AI DP ignores the recursive-listing flag, restoring complete bounded
   volume trees from the root path.
