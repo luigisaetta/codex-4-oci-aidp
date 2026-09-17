@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* 2026-09-17: Cache resolved AI DP instance and workspace identifiers for each
+  MCP server process, avoiding repeated OCI discovery while retaining
+  short-lived authenticated clients. When an instance OCID and compartment
+  name are configured, validate the instance's own compartment instead of
+  listing the tenancy subtree; an instance now disambiguates duplicate visible
+  compartment names.
+
 * 2026-09-17: Add `aidp_mcp/README.md` with the complete MCP tool inventory,
   stdio transport rationale, prerequisites, safety boundaries, and Codex setup
   instructions.

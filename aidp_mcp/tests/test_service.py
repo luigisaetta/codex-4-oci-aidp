@@ -5,19 +5,30 @@ License: MIT
 Description: Offline tests for AI DP MCP validation and tool registration.
 """
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,too-many-lines
 
 import asyncio
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 import json
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import oci
 import pytest
 
 from aidp_common.connection import AidpError
 from aidp_mcp import service
 from aidp_mcp.server import MCP
+
+
+@pytest.fixture(autouse=True)
+def clear_process_target_cache():
+    """Keep module-level target resolution state out of unrelated tests."""
+    service.clear_target_cache()
+    yield
+    service.clear_target_cache()
 
 
 def test_validate_local_notebook_returns_json_and_digest(tmp_path, monkeypatch):
@@ -218,14 +229,211 @@ def test_mcp_workbench_clients_preserve_numeric_timestamps(monkeypatch):
 
     assert [
         call.kwargs.get("preserve_timestamps") for call in managed.call_args_list
-    ] == [
-        None,
-        None,
-        True,
-        True,
-        True,
-        True,
+    ] == [None, None]
+
+
+def _target_settings(**overrides):
+    """Return complete target-selection settings for resolution tests."""
+    values = {
+        "config_file": "~/.oci/config",
+        "profile": "DEFAULT",
+        "region": "eu-frankfurt-1",
+        "compartment": "ocid1.compartment.example",
+        "instance_id": "ocid1.aidp.example",
+        "workspace_name": "workspace",
+        "endpoint": None,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def _resolve_cached_target(settings, monkeypatch, *, need_workspace):
+    """Resolve through the cache with discovery replaced by offline mocks."""
+    discover = Mock(return_value=[SimpleNamespace(id="instance")])
+    workspace = Mock(return_value="workspace-key")
+    monkeypatch.setattr(service, "_discover_instances", discover)
+    monkeypatch.setattr(service, "find_workspace", workspace)
+    managed = Mock(return_value=Mock())
+    monkeypatch.setattr(service, "managed_client", managed)
+    result = service._resolve_target(
+        settings,
+        {"tenancy": "tenancy"},
+        {},
+        {},
+        Mock(),
+        need_workspace=need_workspace,
+    )
+    return result, discover, workspace, managed
+
+
+def test_target_resolution_reuses_complete_workspace_target(monkeypatch):
+    """An identical second workspace resolution performs no discovery or setup."""
+    settings = _target_settings()
+    first, discover, workspace, managed = _resolve_cached_target(
+        settings, monkeypatch, need_workspace=True
+    )
+    second = service._resolve_target(
+        settings,
+        {"tenancy": "tenancy"},
+        {},
+        {},
+        Mock(),
+        need_workspace=True,
+    )
+
+    assert first[0] == service.ResolvedTarget("instance", "workspace-key")
+    assert first[2] is False
+    assert second[0] == first[0]
+    assert second[2] is True
+    discover.assert_called_once()
+    workspace.assert_called_once()
+    assert managed.call_count == 3
+
+
+def test_catalog_then_workspace_reuses_cached_instance(monkeypatch):
+    """Adding a workspace key does not rediscover the selected instance."""
+    settings = _target_settings()
+    _, discover, workspace, _ = _resolve_cached_target(
+        settings, monkeypatch, need_workspace=False
+    )
+    service._resolve_target(
+        settings,
+        {"tenancy": "tenancy"},
+        {},
+        {},
+        Mock(),
+        need_workspace=True,
+    )
+
+    discover.assert_called_once()
+    workspace.assert_called_once()
+
+
+def test_target_resolution_uses_new_key_when_workspace_changes(monkeypatch):
+    """A target setting change cannot reuse identifiers from another target."""
+    settings = _target_settings()
+    _, discover, _, _ = _resolve_cached_target(
+        settings, monkeypatch, need_workspace=False
+    )
+    service._resolve_target(
+        _target_settings(workspace_name="other-workspace"),
+        {"tenancy": "tenancy"},
+        {},
+        {},
+        Mock(),
+        need_workspace=False,
+    )
+
+    assert discover.call_count == 2
+
+
+def test_target_resolution_concurrent_misses_discover_once(monkeypatch):
+    """The process lock coalesces two simultaneous first resolutions."""
+    settings = _target_settings()
+
+    def discover(*_args):
+        time.sleep(0.05)
+        return [SimpleNamespace(id="instance")]
+
+    mocked_discover = Mock(side_effect=discover)
+    monkeypatch.setattr(service, "_discover_instances", mocked_discover)
+    monkeypatch.setattr(service, "managed_client", Mock(return_value=Mock()))
+
+    def resolve():
+        return service._resolve_target(
+            settings,
+            {"tenancy": "tenancy"},
+            {},
+            {},
+            Mock(),
+            need_workspace=False,
+        )[0]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _unused: resolve(), range(2)))
+
+    assert results == [
+        service.ResolvedTarget("instance"),
+        service.ResolvedTarget("instance"),
     ]
+    mocked_discover.assert_called_once()
+
+
+def test_target_resolution_failure_does_not_populate_cache(monkeypatch):
+    """A failed discovery cannot leave a partial target for a later call."""
+    settings = _target_settings()
+    monkeypatch.setattr(
+        service, "_discover_instances", Mock(side_effect=AidpError("no"))
+    )
+    monkeypatch.setattr(service, "managed_client", Mock(return_value=Mock()))
+
+    with pytest.raises(AidpError, match="no"):
+        service._resolve_target(
+            settings,
+            {"tenancy": "tenancy"},
+            {},
+            {},
+            Mock(),
+            need_workspace=False,
+        )
+
+    assert not service._TARGET_CACHE
+
+
+def test_cached_target_is_cleared_after_tool_404(monkeypatch):
+    """A 404 from tool work invalidates the complete cached target once."""
+    settings = _target_settings()
+    cache_key = ("target",)
+    service._TARGET_CACHE[cache_key] = service.ResolvedTarget(
+        "instance", "workspace-key"
+    )
+    monkeypatch.setattr(
+        service,
+        "load_auth",
+        Mock(return_value=({"tenancy": "tenancy"}, {})),
+    )
+    monkeypatch.setattr(
+        service,
+        "_resolve_target",
+        Mock(
+            return_value=(
+                service.ResolvedTarget("instance", "workspace-key"),
+                cache_key,
+                True,
+            )
+        ),
+    )
+    monkeypatch.setattr(service, "managed_client", Mock(return_value=Mock()))
+
+    with pytest.raises(oci.exceptions.ServiceError):
+        with service.AidpWorkflowService(settings)._clients():
+            raise oci.exceptions.ServiceError(404, "NotFound", {}, "gone")
+
+    assert cache_key not in service._TARGET_CACHE
+
+
+def test_named_compartment_uses_instance_compartment_lookup():
+    """An explicit instance avoids tenancy-wide compartment enumeration."""
+    identity = Mock()
+    control = Mock()
+    instance = SimpleNamespace(
+        id="instance", compartment_id="compartment-id", lifecycle_state="ACTIVE"
+    )
+    control.get_ai_data_platform.return_value.data = instance
+    identity.get_compartment.return_value.data = SimpleNamespace(
+        name="development", lifecycle_state="ACTIVE"
+    )
+
+    result = service._discover_instances(
+        identity,
+        control,
+        {"tenancy": "tenancy"},
+        _target_settings(compartment="development"),
+    )
+
+    assert result == [instance]
+    control.get_ai_data_platform.assert_called_once_with("ocid1.aidp.example")
+    identity.get_compartment.assert_called_once_with("compartment-id")
 
 
 def test_cluster_response_omits_sensitive_runtime_references():

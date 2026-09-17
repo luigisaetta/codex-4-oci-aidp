@@ -29,6 +29,14 @@ It starts `python -m aidp_mcp.server` in the project Conda environment. Do not
 start it manually in an interactive terminal: an MCP client must own its
 standard input and output.
 
+For the lifetime of its process, the server caches only the resolved AI DP
+instance OCID and workspace key; SDK clients, credentials, and tool results
+remain per-request. A changed applicable `.env` target setting is resolved on
+the next request (process environment variables still take precedence). A
+deleted or renamed target can fail once, clears its cached target on HTTP 404,
+and is resolved again by the following request. Prefer a compartment OCID over
+a name to avoid the initial OCI Identity lookup.
+
 ## Tools
 
 | Tool | Type | Description |

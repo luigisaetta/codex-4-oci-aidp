@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
+from threading import Lock
 import time
 from urllib.parse import quote
 from uuid import uuid4
@@ -48,6 +49,46 @@ MAX_NOTEBOOK_LIST_RESULTS = 1000
 MAX_NOTEBOOK_JOB_SEARCH_RESULTS = 1000
 MAX_CATALOG_VOLUME_RESULTS = 1000
 MAX_VOLUME_FILE_RESULTS = 1000
+TARGET_CACHE_LOCK = Lock()
+_TARGET_CACHE = {}
+
+
+@dataclass(frozen=True)
+class ResolvedTarget:
+    """Cached identifiers for one configured AI DP target."""
+
+    instance_id: str
+    workspace_key: str | None = None
+
+
+def clear_target_cache():
+    """Remove all cached AI DP target identifiers.
+
+    This is primarily for deterministic offline tests. Production invalidation
+    removes only the target whose cached use received an HTTP 404 response.
+    """
+    with TARGET_CACHE_LOCK:
+        _TARGET_CACHE.clear()
+
+
+def _target_cache_key(settings, tenancy_id):
+    """Build a stable cache key from target-selection inputs and tenancy."""
+    fields = (
+        "config_file",
+        "profile",
+        "region",
+        "compartment",
+        "instance_id",
+        "workspace_name",
+        "endpoint",
+    )
+    return tuple(getattr(settings, field, None) for field in fields) + (tenancy_id,)
+
+
+def _clear_target_cache_entry(key):
+    """Remove one target only when it is still present in the process cache."""
+    with TARGET_CACHE_LOCK:
+        _TARGET_CACHE.pop(key, None)
 
 
 @dataclass(frozen=True)
@@ -577,6 +618,107 @@ def _matching_notebook_tasks(job, notebook_path):
     return matches
 
 
+def _discover_instances(identity, control, config, settings):
+    """Resolve the configured instance without tenancy-wide listing when possible.
+
+    Args:
+        identity: Short-lived OCI Identity client used only for name validation.
+        control: Short-lived AI DP control-plane client.
+        config: Validated OCI configuration containing the tenancy OCID.
+        settings: Validated MCP connection settings.
+
+    Returns:
+        list: The active selected instance, or the active instances selected by
+        the existing compartment-based discovery path.
+
+    Raises:
+        AidpError: The explicit instance is inactive or outside the named
+        compartment, or normal discovery cannot select an instance.
+    """
+    compartment_is_ocid = settings.compartment.startswith(
+        ("ocid1.compartment.", "ocid1.tenancy.")
+    )
+    if settings.instance_id and not compartment_is_ocid:
+        instance = control.get_ai_data_platform(settings.instance_id).data
+        compartment = identity.get_compartment(instance.compartment_id).data
+        if (
+            getattr(instance, "lifecycle_state", None) != "ACTIVE"
+            or getattr(compartment, "lifecycle_state", None) != "ACTIVE"
+            or getattr(compartment, "name", None) != settings.compartment
+        ):
+            raise AidpError(
+                "Selected instance must be active in the requested compartment."
+            )
+        return [instance]
+    compartment_id = resolve_compartment(
+        identity, config["tenancy"], settings.compartment
+    )
+    return list_instances(control, compartment_id, settings.instance_id)
+
+
+def _resolve_target(
+    settings, config, options, workbench_options, resources, *, need_workspace
+):
+    """Return one cached or newly discovered AI DP target.
+
+    The process-wide lock intentionally covers discovery. This prevents two
+    FastMCP worker threads from repeating a slow first resolution for the same
+    target; ordinary tool work executes after the lock is released.
+
+    Args:
+        settings: Validated MCP connection settings.
+        config: Validated OCI configuration.
+        options: OCI signer, timeout, and retry options.
+        workbench_options: Workbench client options, including an endpoint
+        override when configured.
+        resources: ExitStack that owns clients created during this request.
+        need_workspace: Whether the caller requires a workspace key.
+
+    Returns:
+        tuple[ResolvedTarget, tuple, bool]: Target, its cache key, and whether
+        a complete target was served from the cache.
+
+    Raises:
+        AidpError: Discovery cannot select exactly one active instance or
+        workspace.
+    """
+    key = _target_cache_key(settings, config["tenancy"])
+    with TARGET_CACHE_LOCK:
+        target = _TARGET_CACHE.get(key)
+        if target and (not need_workspace or target.workspace_key is not None):
+            return target, key, True
+
+        if target is None:
+            identity = managed_client(
+                resources, oci.identity.IdentityClient, config, options
+            )
+            control = managed_client(
+                resources, oci.ai_data_platform.AiDataPlatformClient, config, options
+            )
+            instances = _discover_instances(identity, control, config, settings)
+            if len(instances) != 1:
+                raise AidpError("Exactly one active AI DP instance must be selected.")
+            instance_id = instances[0].id
+            validate_resource_key(instance_id)
+            target = ResolvedTarget(instance_id)
+
+        if need_workspace and target.workspace_key is None:
+            workspaces = managed_client(
+                resources,
+                WorkspaceClient,
+                config,
+                workbench_options,
+                preserve_timestamps=True,
+            )
+            workspace_key = find_workspace(
+                workspaces, target.instance_id, settings.workspace_name
+            )
+            target = ResolvedTarget(target.instance_id, workspace_key)
+
+        _TARGET_CACHE[key] = target
+        return target, key, False
+
+
 class AidpWorkflowService:
     """Perform scoped notebook and workflow operations through typed SDK clients."""
 
@@ -595,56 +737,52 @@ class AidpWorkflowService:
         if self.settings.endpoint:
             workbench_options["service_endpoint"] = self.settings.endpoint
         resources = ExitStack()
-        identity = managed_client(
-            resources, oci.identity.IdentityClient, config, options
-        )
-        control = managed_client(
-            resources, oci.ai_data_platform.AiDataPlatformClient, config, options
-        )
-        # AI DP can return numeric timestamps in response models. These tools do
-        # not interpret timestamps, so preserve their service representation and
-        # prevent OCI SDK datetime deserialization from rejecting discovery.
-        workspaces = managed_client(
-            resources,
-            WorkspaceClient,
-            config,
-            workbench_options,
-            preserve_timestamps=True,
-        )
-        clusters = managed_client(
-            resources,
-            ClusterClient,
-            config,
-            workbench_options,
-            preserve_timestamps=True,
-        )
-        notebooks = managed_client(
-            resources,
-            NotebookClient,
-            config,
-            workbench_options,
-            preserve_timestamps=True,
-        )
-        workflows = managed_client(
-            resources,
-            WorkflowClient,
-            config,
-            workbench_options,
-            preserve_timestamps=True,
-        )
-        compartment = resolve_compartment(
-            identity, config["tenancy"], self.settings.compartment
-        )
-        instances = list_instances(control, compartment, self.settings.instance_id)
+        cache_key = None
+        cache_hit = False
         try:
-            if len(instances) != 1:
-                raise AidpError("Exactly one active AI DP instance must be selected.")
-            instance_id = instances[0].id
-            validate_resource_key(instance_id)
-            workspace_key = find_workspace(
-                workspaces, instance_id, self.settings.workspace_name
+            target, cache_key, cache_hit = _resolve_target(
+                self.settings,
+                config,
+                options,
+                workbench_options,
+                resources,
+                need_workspace=True,
             )
-            yield instance_id, workspace_key, clusters, notebooks, workflows
+            # AI DP can return numeric timestamps in response models. These tools do
+            # not interpret timestamps, so preserve their service representation and
+            # prevent OCI SDK datetime deserialization from rejecting discovery.
+            clusters = managed_client(
+                resources,
+                ClusterClient,
+                config,
+                workbench_options,
+                preserve_timestamps=True,
+            )
+            notebooks = managed_client(
+                resources,
+                NotebookClient,
+                config,
+                workbench_options,
+                preserve_timestamps=True,
+            )
+            workflows = managed_client(
+                resources,
+                WorkflowClient,
+                config,
+                workbench_options,
+                preserve_timestamps=True,
+            )
+            yield (
+                target.instance_id,
+                target.workspace_key,
+                clusters,
+                notebooks,
+                workflows,
+            )
+        except oci.exceptions.ServiceError as exc:
+            if cache_hit and exc.status == 404:
+                _clear_target_cache_entry(cache_key)
+            raise
         finally:
             resources.close()
 
@@ -661,43 +799,43 @@ class AidpWorkflowService:
         if self.settings.endpoint:
             workbench_options["service_endpoint"] = self.settings.endpoint
         resources = ExitStack()
-        identity = managed_client(
-            resources, oci.identity.IdentityClient, config, options
-        )
-        control = managed_client(
-            resources, oci.ai_data_platform.AiDataPlatformClient, config, options
-        )
-        catalogs = managed_client(
-            resources,
-            CatalogClient,
-            config,
-            workbench_options,
-            preserve_timestamps=True,
-        )
-        schemas = managed_client(
-            resources,
-            SchemaClient,
-            config,
-            workbench_options,
-            preserve_timestamps=True,
-        )
-        volumes = managed_client(
-            resources,
-            VolumeClient,
-            config,
-            workbench_options,
-            preserve_timestamps=True,
-        )
-        compartment = resolve_compartment(
-            identity, config["tenancy"], self.settings.compartment
-        )
-        instances = list_instances(control, compartment, self.settings.instance_id)
+        cache_key = None
+        cache_hit = False
         try:
-            if len(instances) != 1:
-                raise AidpError("Exactly one active AI DP instance must be selected.")
-            instance_id = instances[0].id
-            validate_resource_key(instance_id)
-            yield instance_id, catalogs, schemas, volumes
+            target, cache_key, cache_hit = _resolve_target(
+                self.settings,
+                config,
+                options,
+                workbench_options,
+                resources,
+                need_workspace=False,
+            )
+            catalogs = managed_client(
+                resources,
+                CatalogClient,
+                config,
+                workbench_options,
+                preserve_timestamps=True,
+            )
+            schemas = managed_client(
+                resources,
+                SchemaClient,
+                config,
+                workbench_options,
+                preserve_timestamps=True,
+            )
+            volumes = managed_client(
+                resources,
+                VolumeClient,
+                config,
+                workbench_options,
+                preserve_timestamps=True,
+            )
+            yield target.instance_id, catalogs, schemas, volumes
+        except oci.exceptions.ServiceError as exc:
+            if cache_hit and exc.status == 404:
+                _clear_target_cache_entry(cache_key)
+            raise
         finally:
             resources.close()
 
