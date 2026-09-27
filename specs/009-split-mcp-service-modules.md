@@ -346,6 +346,15 @@ and `targets.find_workspace` where those names are resolved. `service.py` is
 tests, Black was clean, Pylint scored 10.00/10, `git diff --check` was clean,
 and the MCP snapshot was unchanged.
 
+Micro-step 2d — target client contexts (commit `Extract MCP target clients`,
+2026-09-27): moved the workspace and catalog SDK client context managers to
+`targets.workspace_clients(settings)` and `targets.catalog_clients(settings)`.
+`service.py` calls those functions; test client injection and
+`managed_client`/`ExitStack` patches now target `targets`. `service.py` is
+1,486 lines and `targets.py` is 274 lines. The MCP suite collected 113 tests;
+the full suite passed 196 tests, Black was clean, Pylint scored 10.00/10,
+`git diff --check` was clean, and the MCP snapshot was unchanged.
+
 Remote verification: pending. In an authorized new Codex session, call
 `get_cluster_status` and `list_notebooks`, then plan one notebook upload with
 `apply=false`; record only sanitized results.

@@ -6,27 +6,16 @@ Description: Validated AI DP MCP notebook, workflow, cluster, catalog, and
 volume operations.
 """
 
-from contextlib import ExitStack, contextmanager
 from pathlib import PurePosixPath
 from threading import Lock
 import time
 from uuid import uuid4
 
 import oci
-from aidp_python_client.aidataplatform_dp import (
-    CatalogClient,
-    ClusterClient,
-    NotebookClient,
-    SchemaClient,
-    VolumeClient,
-    WorkflowClient,
-    models,
-)
+from aidp_python_client.aidataplatform_dp import models
 
 from aidp_common.connection import (
     AidpError,
-    load_auth,
-    managed_client,
     validate_resource_key,
 )
 from aidp_mcp.safety import require_confirmation, should_apply
@@ -303,104 +292,6 @@ class AidpWorkflowService:
         """
         self.settings = settings or load_connection_settings()
 
-    @contextmanager
-    def _clients(self):
-        config, options = load_auth(self.settings)
-        workbench_options = dict(options)
-        if self.settings.endpoint:
-            workbench_options["service_endpoint"] = self.settings.endpoint
-        resources = ExitStack()
-        cache_key = None
-        cache_hit = False
-        try:
-            target, cache_key, cache_hit = getattr(targets, "_resolve_target")(
-                self.settings,
-                config,
-                options,
-                workbench_options,
-                resources,
-                need_workspace=True,
-            )
-            # AI DP can return numeric timestamps in response models. These tools do
-            # not interpret timestamps, so preserve their service representation and
-            # prevent OCI SDK datetime deserialization from rejecting discovery.
-            clusters = managed_client(
-                resources,
-                ClusterClient,
-                config,
-                workbench_options,
-                preserve_timestamps=True,
-            )
-            notebooks = managed_client(
-                resources,
-                NotebookClient,
-                config,
-                workbench_options,
-                preserve_timestamps=True,
-            )
-            workflows = managed_client(
-                resources,
-                WorkflowClient,
-                config,
-                workbench_options,
-                preserve_timestamps=True,
-            )
-            yield (
-                target.instance_id,
-                target.workspace_key,
-                clusters,
-                notebooks,
-                workflows,
-            )
-        except oci.exceptions.ServiceError as exc:
-            if cache_hit and exc.status == 404:
-                getattr(targets, "_clear_target_cache_entry")(cache_key)
-            raise
-        finally:
-            resources.close()
-
-    @contextmanager
-    def _catalog_clients(self):
-        """Create short-lived clients for AI DP catalog discovery.
-
-        Catalog resources are scoped to the AI DP instance, rather than a
-        workspace. Keeping this separate avoids adding workspace objects to
-        read-only volume discovery requests.
-        """
-        config, options = load_auth(self.settings)
-        workbench_options = dict(options)
-        if self.settings.endpoint:
-            workbench_options["service_endpoint"] = self.settings.endpoint
-        resources = ExitStack()
-        cache_key = None
-        cache_hit = False
-        try:
-            target, cache_key, cache_hit = getattr(targets, "_resolve_target")(
-                self.settings,
-                config,
-                options,
-                workbench_options,
-                resources,
-                need_workspace=False,
-            )
-            catalogs, schemas, volumes = (
-                managed_client(
-                    resources,
-                    client_class,
-                    config,
-                    workbench_options,
-                    preserve_timestamps=True,
-                )
-                for client_class in (CatalogClient, SchemaClient, VolumeClient)
-            )
-            yield target.instance_id, catalogs, schemas, volumes
-        except oci.exceptions.ServiceError as exc:
-            if cache_hit and exc.status == 404:
-                getattr(targets, "_clear_target_cache_entry")(cache_key)
-            raise
-        finally:
-            resources.close()
-
     def list_catalog_volumes(self, catalog_name, external_only=True, max_results=100):
         """List visible volumes below one exact catalog name.
 
@@ -422,7 +313,7 @@ class AidpWorkflowService:
         schema_nodes = []
         matched_count = 0
         is_truncated = False
-        with self._catalog_clients() as clients:
+        with targets.catalog_clients(self.settings) as clients:
             instance_id, catalogs, schemas, volumes = clients
             catalog = _find_exact_catalog(catalogs, instance_id, catalog_name)
             schema_items = oci.pagination.list_call_get_all_results(
@@ -487,7 +378,7 @@ class AidpWorkflowService:
         volume_name = validate_resource_name(volume_name, "Volume")
         path = validate_volume_path(path)
         _validate_result_limit(max_results, MAX_VOLUME_FILE_RESULTS)
-        with self._catalog_clients() as clients:
+        with targets.catalog_clients(self.settings) as clients:
             instance_id, catalogs, schemas, volumes = clients
             catalog = _find_exact_catalog(catalogs, instance_id, catalog_name)
             schema = _find_exact_schema(
@@ -542,7 +433,7 @@ class AidpWorkflowService:
         )
         destination = validate_workspace_path(workspace_path)
         service_path = workspace_content_path(destination)
-        with self._clients() as clients:
+        with targets.workspace_clients(self.settings) as clients:
             instance_id, workspace_key, _, notebooks, _ = clients
             try:
                 remote = notebook_content_request(
@@ -644,7 +535,7 @@ class AidpWorkflowService:
         match = name_contains.casefold() if name_contains else None
         summaries = []
         page = None
-        with self._clients() as clients:
+        with targets.workspace_clients(self.settings) as clients:
             instance_id, workspace_key, _, notebooks, _ = clients
             while len(summaries) < max_results:
                 response = workspace_objects_request(
@@ -699,7 +590,7 @@ class AidpWorkflowService:
 
         matches = []
         page = None
-        with self._clients() as clients:
+        with targets.workspace_clients(self.settings) as clients:
             instance_id, workspace_key, _, _, workflows = clients
             while len(matches) < max_results:
                 response = workflows.list_jobs(
@@ -770,7 +661,7 @@ class AidpWorkflowService:
 
         page = None
         runs = []
-        with self._clients() as clients:
+        with targets.workspace_clients(self.settings) as clients:
             instance_id, workspace_key, _, _, workflows = clients
             if job_name is not None:
                 job = _find_job(workflows, instance_id, workspace_key, job_name)
@@ -848,7 +739,7 @@ class AidpWorkflowService:
             or ".." in PurePosixPath(job_location).parts
         ):
             raise AidpError("Job location must be below /Workspace.")
-        with self._clients() as clients:
+        with targets.workspace_clients(self.settings) as clients:
             instance_id, workspace_key, clusters, _, workflows = clients
             target = find_cluster(clusters, instance_id, workspace_key, cluster_name)
             response = _find_job(workflows, instance_id, workspace_key, job_name)
@@ -923,7 +814,7 @@ class AidpWorkflowService:
         )
         if not isinstance(timeout_seconds, int) or timeout_seconds < 1:
             raise AidpError("timeout_seconds must be a positive integer.")
-        with self._clients() as clients:
+        with targets.workspace_clients(self.settings) as clients:
             instance_id, workspace_key, clusters, _, workflows = clients
             response = _find_job(workflows, instance_id, workspace_key, job_name)
             if response is None or not _is_supported_job(response.data):
@@ -978,7 +869,7 @@ class AidpWorkflowService:
             dict: Sanitized job-run status.
         """
         validate_resource_key(job_run_key)
-        with self._clients() as clients:
+        with targets.workspace_clients(self.settings) as clients:
             instance_id, workspace_key, _, _, workflows = clients
             response = workflows.get_job_run(instance_id, workspace_key, job_run_key)
             return _run_response(response.data, job_run_key)
@@ -997,7 +888,7 @@ class AidpWorkflowService:
         """
         if not isinstance(cluster_name, str) or not cluster_name.strip():
             raise AidpError("Cluster name must be a nonempty string.")
-        with self._clients() as clients:
+        with targets.workspace_clients(self.settings) as clients:
             instance_id, workspace_key, clusters, _, _ = clients
             cluster = find_cluster_status(
                 clusters, instance_id, workspace_key, cluster_name
@@ -1042,7 +933,7 @@ class AidpWorkflowService:
             or timeout_seconds < 1
         ):
             raise AidpError("timeout_seconds must be a positive integer.")
-        with self._clients() as clients:
+        with targets.workspace_clients(self.settings) as clients:
             instance_id, workspace_key, clusters, _, _ = clients
             response = find_cluster_details(
                 clusters, instance_id, workspace_key, cluster_name
@@ -1138,7 +1029,7 @@ class AidpWorkflowService:
                 "max_characters must be an integer from 1 to "
                 f"{MAX_JOB_RUN_OUTPUT_CHARACTERS}."
             )
-        with self._clients() as clients:
+        with targets.workspace_clients(self.settings) as clients:
             instance_id, workspace_key, _, _, workflows = clients
             task_runs = oci.pagination.list_call_get_all_results(
                 workflows.list_task_runs,

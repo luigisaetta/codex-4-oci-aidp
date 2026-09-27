@@ -56,7 +56,7 @@ def test_upload_plan_uses_matching_extra_root_without_remote_write(
 
     missing = oci.exceptions.ServiceError(404, "NotFound", {}, "missing")
     request = Mock(side_effect=missing)
-    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(targets, "workspace_clients", lambda _settings: clients())
     monkeypatch.setattr(service, "notebook_content_request", request)
 
     result = workflow_service.upload_notebook(
@@ -92,7 +92,7 @@ def test_upload_notebook_validates_the_local_path_once(tmp_path, monkeypatch):
     def clients():
         yield "instance", "workspace", Mock(), Mock(), Mock()
 
-    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(targets, "workspace_clients", lambda _settings: clients())
     monkeypatch.setattr(local_files, "validate_local_path", path_validation)
     monkeypatch.setattr(service, "notebook_content_request", Mock(side_effect=missing))
 
@@ -213,17 +213,17 @@ def test_mcp_workbench_clients_preserve_numeric_timestamps(monkeypatch):
     managed = Mock(side_effect=[Mock() for _ in range(6)])
 
     monkeypatch.setattr(
-        service, "load_auth", Mock(return_value=({"tenancy": "tenancy"}, {}))
+        targets, "load_auth", Mock(return_value=({"tenancy": "tenancy"}, {}))
     )
     monkeypatch.setattr(targets, "managed_client", managed)
     monkeypatch.setattr(
         targets, "resolve_compartment", Mock(return_value="compartment")
     )
     monkeypatch.setattr(targets, "list_instances", Mock(return_value=[]))
-    monkeypatch.setattr(service, "ExitStack", Mock(return_value=Mock()))
+    monkeypatch.setattr(targets, "ExitStack", Mock(return_value=Mock()))
 
     with pytest.raises(AidpError, match="Exactly one active"):
-        with service.AidpWorkflowService(settings)._clients():
+        with targets.workspace_clients(settings):
             pass
 
     assert [
@@ -294,7 +294,7 @@ def test_set_cluster_state_starts_stopped_cluster_with_etag(monkeypatch):
     def clients():
         yield "instance", "workspace", clusters, Mock(), Mock()
 
-    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(targets, "workspace_clients", lambda _settings: clients())
     monkeypatch.setattr(
         service,
         "find_cluster_details",
@@ -332,7 +332,7 @@ def test_set_cluster_state_does_not_resubmit_active_start(monkeypatch):
     def clients():
         yield "instance", "workspace", clusters, Mock(), Mock()
 
-    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(targets, "workspace_clients", lambda _settings: clients())
     monkeypatch.setattr(
         service,
         "find_cluster_details",
@@ -355,7 +355,7 @@ def test_set_cluster_state_stops_active_cluster(monkeypatch):
     def clients():
         yield "instance", "workspace", clusters, Mock(), Mock()
 
-    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(targets, "workspace_clients", lambda _settings: clients())
     monkeypatch.setattr(
         service,
         "find_cluster_details",
@@ -429,7 +429,7 @@ def test_get_job_run_output_fetches_the_single_task_output(monkeypatch):
     def clients():
         yield "instance", "workspace", Mock(), Mock(), workflows
 
-    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(targets, "workspace_clients", lambda _settings: clients())
     list_results = Mock(return_value=SimpleNamespace(data=[task_run]))
     monkeypatch.setattr(
         service.oci.pagination,
@@ -488,7 +488,7 @@ def test_list_notebooks_paginates_and_filters_metadata(monkeypatch):
     def clients():
         yield "instance", "workspace", Mock(), notebooks, Mock()
 
-    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(targets, "workspace_clients", lambda _settings: clients())
     request = Mock(side_effect=[first_page, second_page])
     monkeypatch.setattr(service, "workspace_objects_request", request)
 
@@ -556,7 +556,7 @@ def test_find_notebook_jobs_matches_workspace_tasks_and_paginates(monkeypatch):
     def clients():
         yield "instance", "workspace", Mock(), Mock(), workflows
 
-    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(targets, "workspace_clients", lambda _settings: clients())
 
     result = workflow_service.find_notebook_jobs(
         "/Workspace/notebooks/test00/test00.ipynb", max_results=5
@@ -606,7 +606,7 @@ def test_find_notebook_jobs_reports_conservative_truncation(monkeypatch):
     def clients():
         yield "instance", "workspace", Mock(), Mock(), workflows
 
-    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(targets, "workspace_clients", lambda _settings: clients())
 
     result = workflow_service.find_notebook_jobs(
         "/Workspace/notebooks/test00/test00.ipynb", max_results=1
@@ -661,7 +661,7 @@ def test_list_job_runs_resolves_name_and_paginates_newest_first(monkeypatch):
     def clients():
         yield "instance", "workspace", Mock(), Mock(), workflows
 
-    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(targets, "workspace_clients", lambda _settings: clients())
 
     result = workflow_service.list_job_runs(job_name="test00_job", max_results=2)
 
@@ -708,7 +708,7 @@ def test_list_job_runs_accepts_a_key_without_job_discovery(monkeypatch):
     def clients():
         yield "instance", "workspace", Mock(), Mock(), workflows
 
-    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(targets, "workspace_clients", lambda _settings: clients())
 
     result = workflow_service.list_job_runs(job_key="job-key")
 
@@ -775,7 +775,7 @@ def test_list_catalog_volumes_returns_only_external_metadata(monkeypatch):
     def catalog_clients():
         yield "instance", catalogs, schemas, volumes
 
-    monkeypatch.setattr(workflow_service, "_catalog_clients", catalog_clients)
+    monkeypatch.setattr(targets, "catalog_clients", lambda _settings: catalog_clients())
     monkeypatch.setattr(
         service.oci.pagination,
         "list_call_get_all_results",
@@ -869,7 +869,7 @@ def test_list_volume_files_builds_a_sanitized_recursive_tree(monkeypatch):
     def catalog_clients():
         yield "instance", catalogs, schemas, volumes
 
-    monkeypatch.setattr(workflow_service, "_catalog_clients", catalog_clients)
+    monkeypatch.setattr(targets, "catalog_clients", lambda _settings: catalog_clients())
     monkeypatch.setattr(
         service.oci.pagination,
         "list_call_get_all_results",
@@ -947,7 +947,7 @@ def test_list_volume_files_keeps_a_logical_child_path_in_the_request(monkeypatch
     def catalog_clients():
         yield "instance", catalogs, schemas, volumes
 
-    monkeypatch.setattr(workflow_service, "_catalog_clients", catalog_clients)
+    monkeypatch.setattr(targets, "catalog_clients", lambda _settings: catalog_clients())
     monkeypatch.setattr(
         service.oci.pagination,
         "list_call_get_all_results",
@@ -1013,7 +1013,7 @@ def test_list_volume_files_inspects_folders_when_recursive_listing_is_shallow(
     def catalog_clients():
         yield "instance", catalogs, schemas, volumes
 
-    monkeypatch.setattr(workflow_service, "_catalog_clients", catalog_clients)
+    monkeypatch.setattr(targets, "catalog_clients", lambda _settings: catalog_clients())
     monkeypatch.setattr(
         service.oci.pagination,
         "list_call_get_all_results",
@@ -1080,7 +1080,7 @@ def test_list_volume_files_accepts_an_already_relative_response_path(monkeypatch
     def catalog_clients():
         yield "instance", catalogs, schemas, volumes
 
-    monkeypatch.setattr(workflow_service, "_catalog_clients", catalog_clients)
+    monkeypatch.setattr(targets, "catalog_clients", lambda _settings: catalog_clients())
     monkeypatch.setattr(
         service.oci.pagination,
         "list_call_get_all_results",

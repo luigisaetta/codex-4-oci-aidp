@@ -14,7 +14,7 @@ import oci
 import pytest
 
 from aidp_common.connection import AidpError
-from aidp_mcp import service, targets
+from aidp_mcp import targets
 
 
 @pytest.fixture(autouse=True)
@@ -181,7 +181,7 @@ def test_cached_target_is_cleared_after_tool_404(monkeypatch):
         "instance", "workspace-key"
     )
     monkeypatch.setattr(
-        service,
+        targets,
         "load_auth",
         Mock(return_value=({"tenancy": "tenancy"}, {})),
     )
@@ -196,10 +196,10 @@ def test_cached_target_is_cleared_after_tool_404(monkeypatch):
             )
         ),
     )
-    monkeypatch.setattr(service, "managed_client", Mock(return_value=Mock()))
+    monkeypatch.setattr(targets, "managed_client", Mock(return_value=Mock()))
 
     with pytest.raises(oci.exceptions.ServiceError):
-        with getattr(service.AidpWorkflowService(settings), "_clients")():
+        with targets.workspace_clients(settings):
             raise oci.exceptions.ServiceError(404, "NotFound", {}, "gone")
 
     assert cache_key not in getattr(targets, "_TARGET_CACHE")

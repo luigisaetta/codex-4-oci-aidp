@@ -5,15 +5,25 @@ License: MIT
 Description: AI DP target discovery and process-lifetime target cache.
 """
 
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from threading import Lock
 
 import oci
-from aidp_python_client.aidataplatform_dp import WorkspaceClient
+from aidp_python_client.aidataplatform_dp import (
+    CatalogClient,
+    ClusterClient,
+    NotebookClient,
+    SchemaClient,
+    VolumeClient,
+    WorkflowClient,
+    WorkspaceClient,
+)
 
 from aidp_common.connection import (
     AidpError,
     list_instances,
+    load_auth,
     managed_client,
     resolve_compartment,
     validate_resource_key,
@@ -161,3 +171,104 @@ def _resolve_target(
 
         _TARGET_CACHE[key] = target
         return target, key, False
+
+
+@contextmanager
+def workspace_clients(settings):
+    """Create request-scoped workspace clients for validated settings."""
+    config, options = load_auth(settings)
+    workbench_options = dict(options)
+    if settings.endpoint:
+        workbench_options["service_endpoint"] = settings.endpoint
+    resources = ExitStack()
+    cache_key = None
+    cache_hit = False
+    try:
+        target, cache_key, cache_hit = _resolve_target(
+            settings,
+            config,
+            options,
+            workbench_options,
+            resources,
+            need_workspace=True,
+        )
+        # AI DP can return numeric timestamps in response models. These tools do
+        # not interpret timestamps, so preserve their service representation and
+        # prevent OCI SDK datetime deserialization from rejecting discovery.
+        clusters = managed_client(
+            resources,
+            ClusterClient,
+            config,
+            workbench_options,
+            preserve_timestamps=True,
+        )
+        notebooks = managed_client(
+            resources,
+            NotebookClient,
+            config,
+            workbench_options,
+            preserve_timestamps=True,
+        )
+        workflows = managed_client(
+            resources,
+            WorkflowClient,
+            config,
+            workbench_options,
+            preserve_timestamps=True,
+        )
+        yield (
+            target.instance_id,
+            target.workspace_key,
+            clusters,
+            notebooks,
+            workflows,
+        )
+    except oci.exceptions.ServiceError as exc:
+        if cache_hit and exc.status == 404:
+            _clear_target_cache_entry(cache_key)
+        raise
+    finally:
+        resources.close()
+
+
+@contextmanager
+def catalog_clients(settings):
+    """Create short-lived clients for AI DP catalog discovery.
+
+    Catalog resources are scoped to the AI DP instance, rather than a
+    workspace. Keeping this separate avoids adding workspace objects to
+    read-only volume discovery requests.
+    """
+    config, options = load_auth(settings)
+    workbench_options = dict(options)
+    if settings.endpoint:
+        workbench_options["service_endpoint"] = settings.endpoint
+    resources = ExitStack()
+    cache_key = None
+    cache_hit = False
+    try:
+        target, cache_key, cache_hit = _resolve_target(
+            settings,
+            config,
+            options,
+            workbench_options,
+            resources,
+            need_workspace=False,
+        )
+        catalogs, schemas, volumes = (
+            managed_client(
+                resources,
+                client_class,
+                config,
+                workbench_options,
+                preserve_timestamps=True,
+            )
+            for client_class in (CatalogClient, SchemaClient, VolumeClient)
+        )
+        yield target.instance_id, catalogs, schemas, volumes
+    except oci.exceptions.ServiceError as exc:
+        if cache_hit and exc.status == 404:
+            _clear_target_cache_entry(cache_key)
+        raise
+    finally:
+        resources.close()
