@@ -60,8 +60,8 @@ Non-goals:
 
 Add to the root `pyproject.toml`, keeping all existing `[tool.*]` sections:
 
-* `[build-system]`: setuptools as the build backend, with a minimum version
-  that supports PEP 621 and PEP 660.
+* `[build-system]`: setuptools 77 or later as the build backend. This minimum
+  supports PEP 621, PEP 660, and the PEP 639 SPDX `license = "MIT"` string.
 * `[project]`:
   * `name = "codex-4-oci-aidp"`, a version such as `0.1.0`, a one-line
     description, `requires-python = ">=3.11"`, and the MIT license consistent
@@ -91,12 +91,15 @@ Only the editable installation is supported:
 ```bash
 conda activate codex-4-oci-aidp
 python -m pip install -r requirements-dev.txt
-python -m pip install --no-deps -e .
+python -m pip install --no-deps --no-build-isolation -e .
 ```
 
 * Use `--no-deps` because dependencies, including the local SDK wheel, are
   already installed from the requirements files. This also prevents pip from
   trying to fetch `aidp-python-client` from PyPI.
+* `--no-build-isolation` is the supported offline editable-install option. It
+  uses the already installed setuptools build backend instead of creating an
+  isolated environment that may require package downloads.
 * In an editable install, `aidp_common` and `aidp_mcp` are imported from this
   checkout, so `PROJECT_ROOT` and `DEFAULT_ENV_FILE`, which are derived from
   `__file__`, keep pointing to the repository. Record this in a code comment
@@ -166,6 +169,10 @@ codex mcp add aidp-mcp \
 * Calling the environment's executable directly avoids `conda run` and does
   not depend on the caller's working directory.
 * `--env` is optional. Without it, the repository `.env` is used.
+* The preferred installed registration replaces an existing `aidp-mcp` entry;
+  document `codex mcp remove aidp-mcp` before adding it. The installed and
+  launcher registrations must not both be active, because they expose the
+  same tool names twice.
 * Verify the `codex mcp add` option syntax for passing environment variables
   against the official OpenAI Codex MCP documentation, record the source and
   verification date in this specification, and show the equivalent
@@ -272,9 +279,11 @@ Local results:
 * As a manual negative check, changing only the `fastmcp` metadata pin made
   the pin-consistency test fail with the two mismatched versions; the original
   pin was restored before the final quality run.
-* `python -m pip install --no-deps -e .` succeeded. `pip show
+* `python -m pip install --no-deps --no-build-isolation -e .` succeeded. `pip show
   codex-4-oci-aidp` reported the editable project location, and the
-  environment contained the `aidp-mcp` executable.
+  environment contained the `aidp-mcp` executable. This command was repeated
+  without build isolation on 2026-09-27 after raising the setuptools minimum
+  to 77 and succeeded using the installed backend.
 * A non-interactive FastMCP client started the installed absolute executable
   from outside the repository and listed all 12 tools, both with the default
   settings and with a temporary external copy selected by `AIDP_ENV_FILE`.

@@ -92,13 +92,17 @@ Codex CLI. Install dependencies first, then run:
 
 ```bash
 conda activate codex-4-oci-aidp
-python -m pip install --no-deps -e .
+python -m pip install --no-deps --no-build-isolation -e .
 conda run -n codex-4-oci-aidp python -c "import shutil; print(shutil.which('aidp-mcp'))"
 ```
 
-Copy the printed absolute executable path into one of these registrations:
+The preferred registration replaces any existing `aidp-mcp` entry. Remove it
+first, then copy the printed absolute executable path into one of these
+registrations:
 
 ```bash
+codex mcp remove aidp-mcp
+
 # Use the repository default .env.
 codex mcp add aidp-mcp -- /absolute/path/to/aidp-mcp
 
@@ -141,7 +145,10 @@ The existing launcher remains supported and passes a caller-provided
 codex mcp add aidp-mcp-launcher -- "$(pwd)/scripts/start_aidp_mcp.sh"
 ```
 
-After registration, either launch method can be used from any Codex project.
+Only one registration should be active: use either the preferred installed
+`aidp-mcp` entry or `aidp-mcp-launcher`, not both. Otherwise Codex sees the
+same tools twice. After registration, either launch method can be used from
+any Codex project.
 
 To replace the registration after moving the repository, remove it and add it
 again from the new repository root:

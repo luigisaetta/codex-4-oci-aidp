@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-27: Require setuptools 77 or later for the SPDX license metadata,
+  document offline editable installation, and prevent duplicate Codex MCP tool
+  registrations by replacing an existing `aidp-mcp` entry first.
+
 * 2026-09-27: Add editable-install metadata and the `aidp-mcp` command; allow
   a process-level `AIDP_ENV_FILE` to select explicit AI DP settings for MCP
   and command-line tools.
