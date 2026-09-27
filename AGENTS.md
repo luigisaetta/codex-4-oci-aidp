@@ -55,11 +55,11 @@ Keep shared runtime dependencies in the repository root `requirements.txt` and d
 
 ## Code, script, and notebook conventions
 
-Every Python source file must begin with the following module header, using the actual modification date. An executable script may place its shebang before the header.
+Every Python source file must begin with the following module header, using the actual modification date. An executable script may place its shebang before the header. Resolve `<configured author>` from the local `CODE_AUTHOR` value in the root `.env`; if it is absent, use `Project contributor`. Do not add `CODE_AUTHOR` to `.env.example` or hard-code an individual's name in these repository instructions.
 
 ```python
 """
-Author: L. Saetta
+Author: <configured author>
 Date last modified: YYYY-MM-DD
 License: MIT
 Description: Brief description of this file's responsibilities.

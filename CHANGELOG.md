@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-27: Make Python module-header attribution configurable through the
+  ignored local `CODE_AUTHOR` setting while shared instructions retain a
+  generic fallback.
+
 * 2026-09-17: Cache resolved AI DP instance and workspace identifiers for each
   MCP server process, avoiding repeated OCI discovery while retaining
   short-lived authenticated clients. When an instance OCID and compartment
