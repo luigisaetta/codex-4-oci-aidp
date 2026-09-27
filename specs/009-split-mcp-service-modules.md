@@ -233,37 +233,19 @@ read-only tools `get_cluster_status` and `list_notebooks`, and plan (with
 
 ## Verification evidence
 
-Implemented locally on 2026-09-27 in the `codex-4-oci-aidp` Conda
-environment (Python 3.11.0), with the repository fixture blocking network
-access during tests.
+First attempt (commits `7b4312e` and `8b961c7`): incomplete. It introduced
+domain and shared-module delegation shims while leaving all real logic in
+`aidp_mcp/operations.py` (2,162 lines), and used Pylint configuration changes
+to accommodate that monolith. Its passing tests and manual 12-tool check did
+not satisfy this specification's extraction acceptance criteria.
 
-Refactor commit evidence:
-
-* The MCP tool fixture was generated before the refactor through an in-memory
-  FastMCP client and committed at `aidp_mcp/tests/fixtures/mcp_tools.json`.
-  It remained byte-identical for the refactor commit.
-* The facade is `aidp_mcp.service.AidpWorkflowService`; the domain entry
-  points are `notebooks.py`, `jobs.py`, `clusters.py`, and `volumes.py`.
-  The snapshot and fresh-interpreter import tests cover the public server
-  contract and import graph. `pytest --collect-only -q aidp_mcp` collected
-  110 tests after the refactor (the prior 101 cases remain in
-  `test_service.py`, with safety tests added in `test_safety.py`).
-* Black completed with no pending changes, Pylint scored 10.00/10 for the
-  documented paths, the full offline suite passed (193 tests), and
-  `git diff --check` was clean.
-
-Follow-up commit evidence:
-
-* `validate_local_notebook` now returns its matching root; the upload spy
-  test verifies a single local path validation.
-* Tests cover rejection of a relative path with one external root and
-  preservation of relative paths for the default repository root. The MCP
-  snapshot changed only for the documented `upload_notebook` path rule.
-* `pytest --collect-only -q aidp_mcp` collected 114 tests. Black completed
-  with no pending changes, Pylint scored 10.00/10, the full offline suite
-  passed (197 tests), and `git diff --check` was clean.
-* From `/private/tmp`, a non-interactive FastMCP client launched the installed
-  `aidp-mcp` executable and listed all 12 tools.
+Restart, Step 0 (2026-09-27): `operations.py` and every delegation shim were
+removed. The actual implementation was restored to `service.py`, which is the
+only parent module pending incremental extraction. `test_service.py` now
+imports `aidp_mcp.service` directly, without an alias. In the
+`codex-4-oci-aidp` Conda environment, the MCP suite passed (113 tests), the
+full offline suite passed (196 tests), Pylint scored 10.00/10, and `git diff
+--check` was clean. The MCP snapshot is unchanged in this step.
 
 Remote verification: pending. In an authorized new Codex session, call
 `get_cluster_status` and `list_notebooks`, then plan one notebook upload with

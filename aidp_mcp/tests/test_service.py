@@ -22,7 +22,7 @@ from fastmcp import Client
 
 from aidp_common.connection import AidpError
 from aidp_common import settings as common_settings
-from aidp_mcp import operations as service
+from aidp_mcp import service
 from aidp_mcp import server
 from aidp_mcp.server import MCP
 
@@ -237,7 +237,7 @@ def test_mcp_settings_file_error_hides_path_and_keeps_session_alive(
         nonlocal first_call
         if first_call:
             first_call = False
-            return service.AidpWorkflowOperations()
+            return service.AidpWorkflowService()
         return healthy_service
 
     monkeypatch.setattr(server, "_service", create_service)
@@ -275,7 +275,7 @@ def test_mcp_selected_settings_without_workspace_keeps_session_alive(
         nonlocal first_call
         if first_call:
             first_call = False
-            return service.AidpWorkflowOperations()
+            return service.AidpWorkflowService()
         return healthy_service
 
     monkeypatch.setattr(server, "_service", create_service)
@@ -348,7 +348,7 @@ def test_upload_plan_uses_matching_extra_root_without_remote_write(
     notebook = root / "notebooks" / "example.ipynb"
     notebook.parent.mkdir()
     notebook.write_text('{"nbformat": 4}', encoding="utf-8")
-    workflow_service = service.AidpWorkflowOperations(
+    workflow_service = service.AidpWorkflowService(
         settings=SimpleNamespace(allowed_roots=(root,))
     )
 
@@ -383,7 +383,7 @@ def test_upload_notebook_validates_the_local_path_once(tmp_path, monkeypatch):
     root.mkdir()
     notebook = root / "example.ipynb"
     notebook.write_text('{"nbformat": 4}', encoding="utf-8")
-    workflow_service = service.AidpWorkflowOperations(
+    workflow_service = service.AidpWorkflowService(
         settings=SimpleNamespace(allowed_roots=(root,))
     )
     original = service.validate_local_path
@@ -568,7 +568,7 @@ def test_managed_notebook_task_sets_required_all_success_run_condition():
 @pytest.mark.parametrize("job_name", ["test00-job", "_test00", "test00 job"])
 def test_ensure_notebook_job_rejects_invalid_resource_names(job_name):
     """Invalid AI DP resource names fail before remote discovery."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     with pytest.raises(AidpError, match="must start with a letter"):
         workflow_service.ensure_notebook_job(
@@ -596,7 +596,7 @@ def test_mcp_workbench_clients_preserve_numeric_timestamps(monkeypatch):
     monkeypatch.setattr(service, "ExitStack", Mock(return_value=Mock()))
 
     with pytest.raises(AidpError, match="Exactly one active"):
-        with service.AidpWorkflowOperations(settings)._clients():
+        with service.AidpWorkflowService(settings)._clients():
             pass
 
     assert [
@@ -778,7 +778,7 @@ def test_cached_target_is_cleared_after_tool_404(monkeypatch):
     monkeypatch.setattr(service, "managed_client", Mock(return_value=Mock()))
 
     with pytest.raises(oci.exceptions.ServiceError):
-        with service.AidpWorkflowOperations(settings)._clients():
+        with service.AidpWorkflowService(settings)._clients():
             raise oci.exceptions.ServiceError(404, "NotFound", {}, "gone")
 
     assert cache_key not in service._TARGET_CACHE
@@ -865,7 +865,7 @@ def test_set_cluster_state_starts_stopped_cluster_with_etag(monkeypatch):
     """Lifecycle start uses one ETag-guarded, no-retry SDK submission."""
     clusters = Mock()
     cluster = SimpleNamespace(key="cluster-key", display_name="clu02", state="STOPPED")
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     @contextmanager
     def clients():
@@ -893,7 +893,7 @@ def test_set_cluster_state_starts_stopped_cluster_with_etag(monkeypatch):
 
 def test_set_cluster_state_requires_explicit_confirmation():
     """The lifecycle tool never performs discovery or mutation without consent."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     with pytest.raises(AidpError, match="confirm_action=true"):
         workflow_service.set_cluster_state("clu02", "start")
@@ -903,7 +903,7 @@ def test_set_cluster_state_does_not_resubmit_active_start(monkeypatch):
     """An already active cluster is a successful lifecycle no-op."""
     clusters = Mock()
     cluster = SimpleNamespace(key="cluster-key", display_name="clu02", state="ACTIVE")
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     @contextmanager
     def clients():
@@ -926,7 +926,7 @@ def test_set_cluster_state_stops_active_cluster(monkeypatch):
     """Lifecycle stop selects the typed stop request for an active cluster."""
     clusters = Mock()
     cluster = SimpleNamespace(key="cluster-key", display_name="clu02", state="ACTIVE")
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     @contextmanager
     def clients():
@@ -951,7 +951,7 @@ def test_set_cluster_state_stops_active_cluster(monkeypatch):
 @pytest.mark.parametrize("value", [0, True, "1200"])
 def test_set_cluster_state_rejects_unsafe_wait_limits(value):
     """Cluster lifecycle polling bounds are validated before cloud discovery."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     with pytest.raises(AidpError, match="timeout_seconds"):
         workflow_service.set_cluster_state(
@@ -1000,7 +1000,7 @@ def test_get_job_run_output_fetches_the_single_task_output(monkeypatch):
         error_trace=None,
         data=[],
     )
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     @contextmanager
     def clients():
@@ -1028,7 +1028,7 @@ def test_get_job_run_output_fetches_the_single_task_output(monkeypatch):
 
 def test_list_notebooks_paginates_and_filters_metadata(monkeypatch):
     """Listing returns bounded matching summaries without notebook content."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
     notebooks = Mock()
     first_page = SimpleNamespace(
         data=SimpleNamespace(
@@ -1090,7 +1090,7 @@ def test_list_notebooks_paginates_and_filters_metadata(monkeypatch):
 
 def test_find_notebook_jobs_matches_workspace_tasks_and_paginates(monkeypatch):
     """Job discovery gets definitions and returns only matching task metadata."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
     workflows = Mock()
     first_page = SimpleNamespace(
         data=SimpleNamespace(items=[SimpleNamespace(key="unrelated")]),
@@ -1158,7 +1158,7 @@ def test_find_notebook_jobs_matches_workspace_tasks_and_paginates(monkeypatch):
 
 def test_find_notebook_jobs_reports_conservative_truncation(monkeypatch):
     """Hitting the requested match limit never claims an exhaustive search."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
     workflows = Mock()
     workflows.list_jobs.return_value = SimpleNamespace(
         data=SimpleNamespace(items=[SimpleNamespace(key="job-key")]), headers={}
@@ -1194,7 +1194,7 @@ def test_find_notebook_jobs_reports_conservative_truncation(monkeypatch):
 
 def test_list_job_runs_resolves_name_and_paginates_newest_first(monkeypatch):
     """Run listing resolves a name and retains only bounded safe summaries."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
     workflows = Mock()
     monkeypatch.setattr(
         service,
@@ -1275,7 +1275,7 @@ def test_list_job_runs_resolves_name_and_paginates_newest_first(monkeypatch):
 
 def test_list_job_runs_accepts_a_key_without_job_discovery(monkeypatch):
     """A supplied key avoids an additional exact-name lookup."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
     workflows = Mock()
     workflows.list_job_runs.return_value = SimpleNamespace(
         data=SimpleNamespace(items=[]), headers={}
@@ -1304,7 +1304,7 @@ def test_list_job_runs_accepts_a_key_without_job_discovery(monkeypatch):
 )
 def test_list_job_runs_requires_one_safe_selector(job_name, job_key):
     """The list request does not allow ambiguous or unsafe job selectors."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     with pytest.raises(AidpError):
         workflow_service.list_job_runs(job_name=job_name, job_key=job_key)
@@ -1313,7 +1313,7 @@ def test_list_job_runs_requires_one_safe_selector(job_name, job_key):
 @pytest.mark.parametrize("value", [0, 1001, True, "100"])
 def test_list_job_runs_rejects_unsafe_result_limits(value):
     """Job-run listing bounds API pagination before cloud discovery."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     with pytest.raises(AidpError, match="max_results"):
         workflow_service.list_job_runs(job_key="job-key", max_results=value)
@@ -1322,7 +1322,7 @@ def test_list_job_runs_rejects_unsafe_result_limits(value):
 @pytest.mark.parametrize("value", [0, 1001, True, "100"])
 def test_find_notebook_jobs_rejects_unsafe_result_limits(value):
     """Job discovery validates its result limit before cloud discovery."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     with pytest.raises(AidpError, match="max_results"):
         workflow_service.find_notebook_jobs("/Workspace/example.ipynb", value)
@@ -1331,7 +1331,7 @@ def test_find_notebook_jobs_rejects_unsafe_result_limits(value):
 @pytest.mark.parametrize("value", [0, 1001, True, "100"])
 def test_list_notebooks_rejects_unsafe_result_limits(value):
     """Notebook listing validates its result limit before cloud discovery."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     with pytest.raises(AidpError, match="max_results"):
         workflow_service.list_notebooks(max_results=value)
@@ -1339,7 +1339,7 @@ def test_list_notebooks_rejects_unsafe_result_limits(value):
 
 def test_list_catalog_volumes_returns_only_external_metadata(monkeypatch):
     """External-volume discovery resolves the hierarchy and omits managed data."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
     catalogs, schemas, volumes = Mock(), Mock(), Mock()
     catalog = SimpleNamespace(key="catalog-key", display_name="catalog")
     schema_a = SimpleNamespace(key="catalog.a", display_name="a")
@@ -1436,7 +1436,7 @@ def test_list_catalog_volumes_returns_only_external_metadata(monkeypatch):
 
 def test_list_volume_files_builds_a_sanitized_recursive_tree(monkeypatch):
     """File browsing returns hierarchy metadata without arbitrary SDK fields."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
     catalogs, schemas, volumes = Mock(), Mock(), Mock()
     catalog = SimpleNamespace(key="catalog-key", display_name="catalog")
     schema = SimpleNamespace(key="catalog.schema", display_name="schema")
@@ -1514,7 +1514,7 @@ def test_list_volume_files_builds_a_sanitized_recursive_tree(monkeypatch):
 
 def test_list_volume_files_keeps_a_logical_child_path_in_the_request(monkeypatch):
     """The SDK receives the public path while mount-prefixed responses normalize."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
     catalogs, schemas, volumes = Mock(), Mock(), Mock()
     catalog = SimpleNamespace(key="catalog-key", display_name="catalog")
     schema = SimpleNamespace(key="catalog.schema", display_name="schema")
@@ -1580,7 +1580,7 @@ def test_list_volume_files_inspects_folders_when_recursive_listing_is_shallow(
     monkeypatch,
 ):
     """Direct-child AI DP responses are expanded into the promised tree."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
     catalogs, schemas, volumes = Mock(), Mock(), Mock()
     catalog = SimpleNamespace(key="catalog-key", display_name="catalog")
     schema = SimpleNamespace(key="catalog.schema", display_name="schema")
@@ -1647,7 +1647,7 @@ def test_list_volume_files_inspects_folders_when_recursive_listing_is_shallow(
 
 def test_list_volume_files_accepts_an_already_relative_response_path(monkeypatch):
     """AI DP responses without a mount prefix remain valid volume paths."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
     catalogs, schemas, volumes = Mock(), Mock(), Mock()
     catalog = SimpleNamespace(key="catalog-key", display_name="catalog")
     schema = SimpleNamespace(key="catalog.schema", display_name="schema")
@@ -1694,7 +1694,7 @@ def test_list_volume_files_accepts_an_already_relative_response_path(monkeypatch
 @pytest.mark.parametrize("value", [0, 1001, True, "100"])
 def test_volume_tools_reject_unsafe_result_limits(value):
     """Volume tool bounds are enforced before remote discovery."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     with pytest.raises(AidpError, match="max_results"):
         workflow_service.list_catalog_volumes("catalog", max_results=value)
@@ -1707,7 +1707,7 @@ def test_volume_tools_reject_unsafe_result_limits(value):
 @pytest.mark.parametrize("value", [0, 12001, True, "12"])
 def test_get_job_run_output_rejects_unsafe_character_limits(value):
     """The local output character bound is validated before cloud discovery."""
-    workflow_service = service.AidpWorkflowOperations(settings=SimpleNamespace())
+    workflow_service = service.AidpWorkflowService(settings=SimpleNamespace())
 
     with pytest.raises(AidpError, match="max_characters"):
         workflow_service.get_job_run_output("job-run-key", value)
