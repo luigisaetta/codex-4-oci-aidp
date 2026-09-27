@@ -13,6 +13,7 @@ import oci
 from aidp_python_client.aidataplatform_dp import (
     CatalogClient,
     ClusterClient,
+    AgentClient,
     NotebookClient,
     SchemaClient,
     VolumeClient,
@@ -266,6 +267,45 @@ def catalog_clients(settings):
             for client_class in (CatalogClient, SchemaClient, VolumeClient)
         )
         yield target.instance_id, catalogs, schemas, volumes
+    except oci.exceptions.ServiceError as exc:
+        if cache_hit and exc.status == 404:
+            _clear_target_cache_entry(cache_key)
+        raise
+    finally:
+        resources.close()
+
+
+@contextmanager
+def agent_clients(settings):
+    """Create request-scoped clients for configured-workspace agent reads.
+
+    Agent responses can contain numeric timestamps, so this context preserves
+    their service representation just as the other Workbench client contexts do.
+    """
+    config, options = load_auth(settings)
+    workbench_options = dict(options)
+    if settings.endpoint:
+        workbench_options["service_endpoint"] = settings.endpoint
+    resources = ExitStack()
+    cache_key = None
+    cache_hit = False
+    try:
+        target, cache_key, cache_hit = _resolve_target(
+            settings,
+            config,
+            options,
+            workbench_options,
+            resources,
+            need_workspace=True,
+        )
+        agents = managed_client(
+            resources,
+            AgentClient,
+            config,
+            workbench_options,
+            preserve_timestamps=True,
+        )
+        yield target.instance_id, target.workspace_key, agents
     except oci.exceptions.ServiceError as exc:
         if cache_hit and exc.status == 404:
             _clear_target_cache_entry(cache_key)

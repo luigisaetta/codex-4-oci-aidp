@@ -205,6 +205,26 @@ def test_cached_target_is_cleared_after_tool_404(monkeypatch):
     assert cache_key not in getattr(targets, "_TARGET_CACHE")
 
 
+def test_agent_clients_use_the_workspace_target_and_preserve_timestamps(monkeypatch):
+    """Agent observations share target caching and safe Workbench client options."""
+    settings = _target_settings()
+    managed = Mock(return_value=Mock())
+    monkeypatch.setattr(
+        targets, "load_auth", Mock(return_value=({"tenancy": "tenancy"}, {}))
+    )
+    monkeypatch.setattr(
+        targets,
+        "_resolve_target",
+        Mock(return_value=(targets.ResolvedTarget("instance", "workspace"), (), False)),
+    )
+    monkeypatch.setattr(targets, "managed_client", managed)
+
+    with targets.agent_clients(settings) as clients:
+        assert clients[:2] == ("instance", "workspace")
+
+    assert managed.call_args.kwargs["preserve_timestamps"] is True
+
+
 def test_named_compartment_uses_instance_compartment_lookup():
     """An explicit instance avoids tenancy-wide compartment enumeration."""
     identity = Mock()

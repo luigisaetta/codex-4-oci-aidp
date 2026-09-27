@@ -7,7 +7,7 @@ Description: Stdio MCP server exposing scoped AI DP notebook, cluster, and volum
 
 from fastmcp import FastMCP
 
-from aidp_mcp import clusters, jobs, notebooks, volumes
+from aidp_mcp import agents, clusters, jobs, notebooks, volumes
 from aidp_mcp.config import load_connection_settings
 
 MCP = FastMCP("aidp-mcp")
@@ -48,6 +48,26 @@ def list_notebooks(
     must be absolute and rooted at `/Workspace`; listing is non-recursive.
     """
     return notebooks.list_notebooks(_settings(), path, name_contains, max_results)
+
+
+@MCP.tool()
+def list_agents(name_contains: str | None = None, max_results: int = 50) -> dict:
+    """List bounded, read-only metadata for configured-workspace agents.
+
+    The optional name filter is a case-insensitive substring match. No agent
+    code or deployment is changed.
+    """
+    return agents.list_agents(_settings(), name_contains, max_results)
+
+
+@MCP.tool()
+def get_agent(agent_name: str) -> dict:
+    """Read one exact-name agent and its bounded deployment metadata.
+
+    This read-only tool matches the agent display name exactly and
+    case-sensitively; it does not change the agent or its deployments.
+    """
+    return agents.get_agent(_settings(), agent_name)
 
 
 @MCP.tool()

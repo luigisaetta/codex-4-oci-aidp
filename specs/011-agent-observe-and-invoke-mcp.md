@@ -299,4 +299,13 @@ describing the blocker in "Verification evidence".
 
 ## Verification evidence
 
-Pending implementation.
+2026-09-27, execution-plan step 1:
+
+* Re-verified Oracle's deployed-agent invocation and deployment documentation.
+  It still documents OCI authentication with at least USE permission, Python
+  `requests` with an OCI signer, and a stable agent-specific `/chat` endpoint.
+* Offline verification passed: 204 tests, Black clean, Pylint 10.00/10, and
+  `git diff --check` clean. The MCP contract snapshot intentionally adds only
+  `list_agents` and `get_agent`; all existing entries are byte-identical.
+* Manual AI DP verification remains pending. No OCI resource was created or
+  modified by this step.

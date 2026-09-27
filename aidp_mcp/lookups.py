@@ -22,7 +22,19 @@ class JobTarget:
     cluster_name: str
 
 
-def _resource_key(resource, label):
+def resource_key(resource, label):
+    """Return a validated resource key from an AI DP SDK model.
+
+    Args:
+        resource: SDK summary or detail model with a ``key`` attribute.
+        label: Human-readable resource type for an actionable failure.
+
+    Returns:
+        str: Validated single-segment resource key.
+
+    Raises:
+        AidpError: The SDK response has no usable resource key.
+    """
     value = getattr(resource, "key", None)
     if not isinstance(value, str) or not value:
         raise AidpError(f"{label} response is missing its key.")
@@ -65,7 +77,7 @@ def find_workspace(workspaces, instance_id, workspace_name):
     ]
     if len(matches) != 1:
         raise AidpError(f"Workspace name has {len(matches)} visible matches.")
-    return _resource_key(matches[0], "Workspace")
+    return resource_key(matches[0], "Workspace")
 
 
 def find_cluster(clusters, instance_id, workspace_key, cluster_name):
@@ -95,7 +107,7 @@ def find_cluster(clusters, instance_id, workspace_key, cluster_name):
     ]
     if len(matches) != 1:
         raise AidpError(f"Cluster name has {len(matches)} visible matches.")
-    key = _resource_key(matches[0], "Cluster")
+    key = resource_key(matches[0], "Cluster")
     cluster = clusters.get_cluster(instance_id, workspace_key, key).data
     if getattr(cluster, "state", None) != "ACTIVE":
         raise AidpError("Selected cluster must be ACTIVE before a job run.")
@@ -150,7 +162,7 @@ def find_cluster_details(clusters, instance_id, workspace_key, cluster_name):
     ]
     if len(matches) != 1:
         raise AidpError(f"Expected exactly one cluster named {cluster_name!r}.")
-    key = _resource_key(matches[0], "Cluster")
+    key = resource_key(matches[0], "Cluster")
     return clusters.get_cluster(instance_id, workspace_key, key)
 
 
@@ -161,7 +173,7 @@ def _sorted_named_resources(resources, label):
         display_name = getattr(resource, "display_name", None)
         if not isinstance(display_name, str) or not display_name:
             raise AidpError(f"{label} response is missing its display name.")
-        _resource_key(resource, label)
+        resource_key(resource, label)
         checked.append(resource)
     return sorted(
         checked,

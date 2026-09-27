@@ -12,7 +12,7 @@ import oci
 from aidp_python_client.aidataplatform_dp import models
 
 from aidp_common.connection import AidpError
-from aidp_mcp.lookups import _resource_key, find_cluster_details, find_cluster_status
+from aidp_mcp.lookups import find_cluster_details, find_cluster_status, resource_key
 from aidp_mcp.safety import require_confirmation
 from aidp_mcp.targets import workspace_clients
 
@@ -109,7 +109,7 @@ def set_cluster_state(
             clusters,
             instance_id=instance_id,
             workspace_key=workspace_key,
-            cluster_key=_resource_key(cluster, "Cluster"),
+            cluster_key=resource_key(cluster, "Cluster"),
             action=action,
             desired=desired,
             origin=origin,
@@ -167,7 +167,7 @@ def _cluster_transition_states(action):
 def _cluster_response(cluster):
     """Return an intentionally small, non-sensitive cluster summary."""
     return {
-        "cluster_key": _resource_key(cluster, "Cluster"),
+        "cluster_key": resource_key(cluster, "Cluster"),
         "display_name": getattr(cluster, "display_name", None),
         "type": getattr(cluster, "type", None),
         "state": getattr(cluster, "state", None),
@@ -202,7 +202,7 @@ def _submit_cluster_action(
             response = clusters.start_cluster(
                 instance_id,
                 workspace_key,
-                _resource_key(cluster, "Cluster"),
+                resource_key(cluster, "Cluster"),
                 models.StartClusterDetails(),
                 **options,
             )
@@ -210,7 +210,7 @@ def _submit_cluster_action(
             response = clusters.stop_cluster(
                 instance_id,
                 workspace_key,
-                _resource_key(cluster, "Cluster"),
+                resource_key(cluster, "Cluster"),
                 models.StopClusterDetails(),
                 **options,
             )

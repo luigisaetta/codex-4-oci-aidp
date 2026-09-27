@@ -57,6 +57,47 @@
     "name": "list_notebooks"
   },
   {
+    "description": "List bounded, read-only metadata for configured-workspace agents.\n\nThe optional name filter is a case-insensitive substring match. No agent\ncode or deployment is changed.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_results": {
+          "default": 50,
+          "type": "integer"
+        },
+        "name_contains": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_agents"
+  },
+  {
+    "description": "Read one exact-name agent and its bounded deployment metadata.\n\nThis read-only tool matches the agent display name exactly and\ncase-sensitively; it does not change the agent or its deployments.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_name"
+      ],
+      "type": "object"
+    },
+    "name": "get_agent"
+  },
+  {
     "description": "List workflow jobs whose workspace notebook task uses one exact notebook.\n\n`workspace_notebook_path` must be absolute and rooted at `/Workspace`.\nThis read-only search returns sanitized job and matching-task metadata.",
     "inputSchema": {
       "additionalProperties": false,

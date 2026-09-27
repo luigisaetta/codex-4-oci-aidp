@@ -10,7 +10,7 @@ from pathlib import PurePosixPath
 import oci
 
 from aidp_common.connection import AidpError
-from aidp_mcp.lookups import _resource_key, _sorted_named_resources, next_page
+from aidp_mcp.lookups import _sorted_named_resources, next_page, resource_key
 from aidp_mcp.targets import catalog_clients
 from aidp_mcp.validation import (
     _validate_result_limit,
@@ -47,19 +47,19 @@ def list_catalog_volumes(settings, catalog_name, external_only=True, max_results
         instance_id, catalogs, schemas, volume_client = clients
         catalog = _find_exact_catalog(catalogs, instance_id, catalog_name)
         schema_items = oci.pagination.list_call_get_all_results(
-            schemas.list_schemas, instance_id, _resource_key(catalog, "Catalog")
+            schemas.list_schemas, instance_id, resource_key(catalog, "Catalog")
         ).data
         for schema in _sorted_named_resources(schema_items, "Schema"):
             volume_items = oci.pagination.list_call_get_all_results(
                 volume_client.list_volumes,
                 instance_id,
-                _resource_key(catalog, "Catalog"),
-                _resource_key(schema, "Schema"),
+                resource_key(catalog, "Catalog"),
+                resource_key(schema, "Schema"),
             ).data
             node_volumes = []
             for summary in _sorted_named_resources(volume_items, "Volume"):
                 detail = volume_client.get_volume(
-                    instance_id, _resource_key(summary, "Volume")
+                    instance_id, resource_key(summary, "Volume")
                 ).data
                 volume_type = getattr(detail, "volume_type", None)
                 if external_only and volume_type != "EXTERNAL":
@@ -113,20 +113,20 @@ def list_volume_files(
         instance_id, catalogs, schemas, volume_client = clients
         catalog = _find_exact_catalog(catalogs, instance_id, catalog_name)
         schema = _find_exact_schema(
-            schemas, instance_id, _resource_key(catalog, "Catalog"), schema_name
+            schemas, instance_id, resource_key(catalog, "Catalog"), schema_name
         )
         volume = _find_exact_volume(
             volume_client,
             instance_id,
-            _resource_key(catalog, "Catalog"),
-            _resource_key(schema, "Schema"),
+            resource_key(catalog, "Catalog"),
+            resource_key(schema, "Schema"),
             volume_name,
         )
         volume_root = _volume_mount_path(catalog, schema, volume)
         entries_by_path, is_truncated = _list_volume_file_entries(
             volume_client,
             instance_id=instance_id,
-            volume_key=_resource_key(volume, "Volume"),
+            volume_key=resource_key(volume, "Volume"),
             root_path=path,
             max_results=max_results,
             volume_root=volume_root,
@@ -136,7 +136,7 @@ def list_volume_files(
             "catalog_name": getattr(catalog, "display_name", None),
             "schema_name": getattr(schema, "display_name", None),
             "display_name": getattr(volume, "display_name", None),
-            "volume_key": _resource_key(volume, "Volume"),
+            "volume_key": resource_key(volume, "Volume"),
         },
         "path": path,
         "root": _volume_file_tree(path, list(entries_by_path.values())),
@@ -207,7 +207,7 @@ def _volume_summary(volume):
     volume_type = getattr(volume, "volume_type", None)
     return {
         "display_name": getattr(volume, "display_name", None),
-        "volume_key": _resource_key(volume, "Volume"),
+        "volume_key": resource_key(volume, "Volume"),
         "full_name": getattr(volume, "full_name", None),
         "volume_type": volume_type,
         "storage_location": (

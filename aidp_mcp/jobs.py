@@ -12,7 +12,7 @@ import oci
 from aidp_python_client.aidataplatform_dp import models
 
 from aidp_common.connection import AidpError, validate_resource_key
-from aidp_mcp.lookups import _resource_key, find_cluster, next_page
+from aidp_mcp.lookups import find_cluster, next_page, resource_key
 from aidp_mcp.safety import require_confirmation, should_apply
 from aidp_mcp.targets import workspace_clients
 from aidp_mcp.validation import (
@@ -61,7 +61,7 @@ def find_notebook_jobs(settings, workspace_notebook_path, max_results=100):
                 page=page,
             )
             for summary in getattr(response.data, "items", None) or []:
-                job_key = _resource_key(summary, "Job")
+                job_key = resource_key(summary, "Job")
                 job = workflows.get_job(instance_id, workspace_key, job_key).data
                 matching_tasks = _matching_notebook_tasks(job, notebook_path)
                 if not matching_tasks:
@@ -127,7 +127,7 @@ def list_job_runs(settings, job_name=None, job_key=None, max_results=25):
             job = _find_job(workflows, instance_id, workspace_key, job_name)
             if job is None:
                 raise AidpError(f"No visible job is named {job_name!r}.")
-            selected_job_key = _resource_key(job.data, "Job")
+            selected_job_key = resource_key(job.data, "Job")
             selected_job_name = getattr(job.data, "name", job_name)
         else:
             selected_job_key = job_key
@@ -144,7 +144,7 @@ def list_job_runs(settings, job_name=None, job_key=None, max_results=25):
                 sort_order="DESC",
             )
             for item in getattr(response.data, "items", None) or []:
-                runs.append(_run_response(item, _resource_key(item, "Job run")))
+                runs.append(_run_response(item, resource_key(item, "Job run")))
                 if len(runs) == max_results:
                     break
             page = next_page(response)
@@ -231,7 +231,7 @@ def ensure_notebook_job(
                 models.CreateJobDetails(**details),
                 retry_strategy=oci.retry.NoneRetryStrategy(),
             )
-            job_key = _resource_key(created.data, "Job")
+            job_key = resource_key(created.data, "Job")
             workflows.update_job(
                 instance_id,
                 workspace_key,
@@ -240,7 +240,7 @@ def ensure_notebook_job(
                 retry_strategy=oci.retry.NoneRetryStrategy(),
             )
         else:
-            job_key = _resource_key(response.data, "Job")
+            job_key = resource_key(response.data, "Job")
             workflows.update_job(
                 instance_id,
                 workspace_key,
@@ -289,14 +289,14 @@ def start_notebook_job(
         ).data
         if getattr(cluster, "state", None) != "ACTIVE":
             raise AidpError("The job cluster must be ACTIVE before submission.")
-        job_key = _resource_key(response.data, "Job")
+        job_key = resource_key(response.data, "Job")
         created = workflows.create_job_run(
             instance_id,
             workspace_key,
             models.CreateJobRunDetails(job_key=job_key, parameters=[]),
             retry_strategy=oci.retry.NoneRetryStrategy(),
         )
-        run_key = _resource_key(created.data, "Job run")
+        run_key = resource_key(created.data, "Job run")
         result = {
             "job_name": job_name,
             "job_run_key": run_key,
@@ -382,7 +382,7 @@ def get_job_run_output(
         if len(task_runs) != 1:
             raise AidpError("Job run must contain exactly one task run.")
         task_run = task_runs[0]
-        task_run_key = _resource_key(task_run, "Task run")
+        task_run_key = resource_key(task_run, "Task run")
         output_key = getattr(task_run, "output_key", None)
         if not isinstance(output_key, str) or not output_key:
             raise AidpError("Task run has no available output key.")
@@ -408,7 +408,7 @@ def _find_job(workflows, instance_id, workspace_key, job_name):
     if not matches:
         return None
     return workflows.get_job(
-        instance_id, workspace_key, _resource_key(matches[0], "Job")
+        instance_id, workspace_key, resource_key(matches[0], "Job")
     )
 
 
@@ -498,7 +498,7 @@ def _task_run_output_response(job_run_key, task_run, output, max_characters):
             text_output.append({"type": "TEXT_PLAIN", "text": text})
     return {
         "job_run_key": job_run_key,
-        "task_run_key": _resource_key(task_run, "Task run"),
+        "task_run_key": resource_key(task_run, "Task run"),
         "task_key": getattr(task_run, "task_key", None),
         "output_key": getattr(output, "key", None),
         "task_type": getattr(output, "task_type", None),
