@@ -349,3 +349,13 @@ describing the blocker in "Verification evidence".
   the dedicated client context. Notebook regression tests passed locally.
 * No workspace folder or file was created remotely. The exact production file
   upload header requirements remain pending live verification.
+
+2026-09-27, execution-plan step 2:
+
+* Implemented allowed-root validation for local agent directories and a
+  deterministic agent-file collection policy. Build artifacts are skipped;
+  secret-like paths and symbolic links are refused before any remote work.
+* Offline tests cover each secret pattern, artifact exclusion, symbolic links,
+  empty folders, allowed-root boundaries, and file-count, per-file, and total
+  byte limits using small local fixtures.
+* No AI DP operation was attempted. The policy is locally verified only.
