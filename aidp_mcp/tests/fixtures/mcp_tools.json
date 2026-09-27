@@ -1,0 +1,319 @@
+[
+  {
+    "description": "Plan or upload a local notebook from an allowed root to AI DP.\n\n`workspace_path` is relative to the selected workspace root. `apply=false`\nis read-only. `apply=true` creates or replaces content only when\noverwrite is explicitly true for an existing notebook. When more than one\n`AIDP_ALLOWED_ROOTS` directory is configured, `local_path` must be\nabsolute so the server does not resolve it against its own repository.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "apply": {
+          "default": false,
+          "type": "boolean"
+        },
+        "local_path": {
+          "type": "string"
+        },
+        "overwrite": {
+          "default": false,
+          "type": "boolean"
+        },
+        "workspace_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "local_path",
+        "workspace_path"
+      ],
+      "type": "object"
+    },
+    "name": "upload_notebook"
+  },
+  {
+    "description": "List notebook metadata in one AI DP workspace directory, without content.\n\nThe optional name filter is a case-insensitive substring match. The path\nmust be absolute and rooted at `/Workspace`; listing is non-recursive.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_results": {
+          "default": 100,
+          "type": "integer"
+        },
+        "name_contains": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "path": {
+          "default": "/Workspace",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_notebooks"
+  },
+  {
+    "description": "List workflow jobs whose workspace notebook task uses one exact notebook.\n\n`workspace_notebook_path` must be absolute and rooted at `/Workspace`.\nThis read-only search returns sanitized job and matching-task metadata.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_results": {
+          "default": 100,
+          "type": "integer"
+        },
+        "workspace_notebook_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace_notebook_path"
+      ],
+      "type": "object"
+    },
+    "name": "find_notebook_jobs"
+  },
+  {
+    "description": "List visible schemas and volumes in one exact AI DP catalog.\n\nBy default only external Object Storage volumes are returned. Results are\nmetadata only; no volume files or content are read.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog_name": {
+          "type": "string"
+        },
+        "external_only": {
+          "default": true,
+          "type": "boolean"
+        },
+        "max_results": {
+          "default": 100,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "catalog_name"
+      ],
+      "type": "object"
+    },
+    "name": "list_catalog_volumes"
+  },
+  {
+    "description": "Return a bounded recursive folder/file tree for one exact volume.\n\nAll resource names are exact and case-sensitive. `path` must be absolute\nwithin the volume. The response contains metadata only, never file content.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog_name": {
+          "type": "string"
+        },
+        "max_results": {
+          "default": 100,
+          "type": "integer"
+        },
+        "path": {
+          "default": "/",
+          "type": "string"
+        },
+        "schema_name": {
+          "type": "string"
+        },
+        "volume_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalog_name",
+        "schema_name",
+        "volume_name"
+      ],
+      "type": "object"
+    },
+    "name": "list_volume_files"
+  },
+  {
+    "description": "List newest-first, sanitized runs for one job selected by name or key.\n\nProvide exactly one selector. This read-only tool returns run keys, states,\nstate messages, timestamps, and a truncation indicator.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "job_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "job_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_results": {
+          "default": 25,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_job_runs"
+  },
+  {
+    "description": "Plan or reconcile a managed, single-notebook AI DP workflow job.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "apply": {
+          "default": false,
+          "type": "boolean"
+        },
+        "cluster_name": {
+          "type": "string"
+        },
+        "job_location": {
+          "default": "/Workspace/jobs",
+          "type": "string"
+        },
+        "job_name": {
+          "type": "string"
+        },
+        "max_concurrent_runs": {
+          "default": 1,
+          "type": "integer"
+        },
+        "workspace_notebook_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_name",
+        "workspace_notebook_path",
+        "cluster_name"
+      ],
+      "type": "object"
+    },
+    "name": "ensure_notebook_job"
+  },
+  {
+    "description": "Start a managed notebook job; confirm_start=true is required.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "confirm_start": {
+          "default": false,
+          "type": "boolean"
+        },
+        "job_name": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 1200,
+          "type": "integer"
+        },
+        "wait": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "job_name"
+      ],
+      "type": "object"
+    },
+    "name": "start_notebook_job"
+  },
+  {
+    "description": "Read sanitized status for a previously submitted AI DP job run.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "job_run_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_run_key"
+      ],
+      "type": "object"
+    },
+    "name": "get_job_run"
+  },
+  {
+    "description": "Read the selected AI DP cluster's state and small configuration summary.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cluster_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cluster_name"
+      ],
+      "type": "object"
+    },
+    "name": "get_cluster_status"
+  },
+  {
+    "description": "Explicitly start or stop one cluster; confirm_action=true is required.\n\nStart can incur compute charges; stop can interrupt workloads. An accepted\nrequest is not completion unless wait=true reports a completed outcome.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "cluster_name": {
+          "type": "string"
+        },
+        "confirm_action": {
+          "default": false,
+          "type": "boolean"
+        },
+        "timeout_seconds": {
+          "default": 1200,
+          "type": "integer"
+        },
+        "wait": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cluster_name",
+        "action"
+      ],
+      "type": "object"
+    },
+    "name": "set_cluster_state"
+  },
+  {
+    "description": "Read bounded plain-text output for a managed single-notebook job run.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "job_run_key": {
+          "type": "string"
+        },
+        "max_characters": {
+          "default": 12000,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "job_run_key"
+      ],
+      "type": "object"
+    },
+    "name": "get_job_run_output"
+  }
+]

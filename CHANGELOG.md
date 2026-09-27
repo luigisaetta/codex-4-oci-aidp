@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* 2026-09-27: Refactor the AI DP MCP service behind a small domain facade and
+  add a checked MCP tool-contract snapshot.
+
 * 2026-09-27: Document direct `~/.codex/config.toml` registration for users
   without the Codex CLI.
 

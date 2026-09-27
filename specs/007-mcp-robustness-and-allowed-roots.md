@@ -228,6 +228,10 @@ absolute paths, or user names.
 
 ## Verification evidence
 
+The two residual review findings (duplicate local-path validation and the
+single non-repository root relative-path message) are resolved by
+specification 009.
+
 Implemented and locally verified on 2026-09-27.
 
 Local environment:

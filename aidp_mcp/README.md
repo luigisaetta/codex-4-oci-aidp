@@ -64,6 +64,16 @@ When two or more roots are configured, provide an absolute `local_path` to
 `upload_notebook`; relative paths are rejected so they cannot resolve against
 the server repository's working directory.
 
+### Code layout
+
+`service.py` is the small facade used by `server.py`. Notebook, workflow-job,
+cluster, and catalog-volume operations are selected through `notebooks.py`,
+`jobs.py`, `clusters.py`, and `volumes.py`; `safety.py` centralizes explicit
+mutation confirmation. New domains, such as future AI DP agents, belong in a
+new domain module rather than in the facade. Dependencies flow from server to
+the facade, domain modules, shared helpers, and finally `aidp_common`; domain
+modules must not depend on one another.
+
 ## Tools
 
 | Tool | Type | Description |
