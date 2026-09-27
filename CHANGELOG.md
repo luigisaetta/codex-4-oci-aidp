@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-27: Document the AI DP agent capabilities in the main README: agent
+  code upload, draft agent creation, observation and invocation tools, and
+  the updated roadmap.
+
 * 2026-09-27: Use `Accept: */*` for AI DP workspace-file reads, avoiding the
   service's HTTP 406 response to `application/octet-stream` and restoring
   upload-plan comparisons.

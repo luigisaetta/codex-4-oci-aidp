@@ -12,8 +12,8 @@ with guardrails.**
 
 `codex-4-oci-aidp` connects a coding agent to
 [Oracle AI Data Platform](https://docs.oracle.com/en/cloud/paas/ai-data-platform/)
-(AI DP). You write notebooks, and soon LangGraph agents, locally. Then you ask
-Codex to explore the platform, deploy your work, and run it. Codex does this
+(AI DP). You write notebooks and LangGraph agents locally. Then you ask Codex
+to explore the platform, upload your work, create agents, and run jobs. Codex does this
 through a local MCP server that plans every change before making it and never
 mutates remote resources without your explicit confirmation.
 
@@ -24,7 +24,7 @@ flowchart LR
     dev["You"] -->|prompts| codex["Codex<br/>CLI or IDE"]
     codex -->|loads when relevant| skills["AI DP skills<br/>workflow knowledge"]
     codex -->|MCP over stdio| mcp["aidp-mcp<br/>local server"]
-    mcp -->|signed OCI SDK calls| aidp[("OCI AI Data Platform<br/>workspaces · notebooks · jobs<br/>clusters · catalogs · volumes")]
+    mcp -->|signed OCI SDK calls| aidp[("OCI AI Data Platform<br/>workspaces · notebooks · jobs<br/>clusters · catalogs · volumes · agents")]
 ```
 
 ## Why
@@ -63,14 +63,35 @@ Ask Codex, in plain language, for example:
 * *"Is my cluster running? If not, tell me what starting it implies."*
 * *"Show me the last runs of job `etl-nightly` and the output of the failed
   one."*
+* *"Upload my agent folder `agents/hello_world` to `/Workspace/hello_world` and
+  create the code-first agent `hello_world` from it."*
+
+The MCP server exposes 20 tools, all listed in [aidp_mcp](aidp_mcp/README.md).
+Read-only tools are the default; every change is planned first and applied
+only with an explicit flag.
+
+**Notebooks, jobs, and data**
 
 | Capability | How |
 | --- | --- |
-| Explore notebooks, jobs, clusters, catalogs, and volumes | 12 MCP tools, read-only by default, listed in [aidp_mcp](aidp_mcp/README.md) |
+| Explore notebooks, jobs, clusters, catalogs, and volumes | read-only tools such as `list_notebooks`, `find_notebook_jobs`, `get_cluster_status`, `list_catalog_volumes`, `list_volume_files` |
 | Upload a local notebook to a workspace | `upload_notebook`: plan first, then apply after your confirmation |
 | Create and run a managed notebook job | `ensure_notebook_job` and `start_notebook_job`, with explicit confirmation |
 | Start or stop a cluster | `set_cluster_state`, with explicit confirmation and a cost warning |
 | Follow a deploy-and-run workflow end to end | the [`aidp-notebook-deploy-and-run`](skills/aidp-notebook-deploy-and-run/SKILL.md) skill |
+
+**Code-first LangGraph agents**
+
+| Capability | How |
+| --- | --- |
+| Upload an agent folder to the workspace | `upload_aidp_agent_code`: plan with a per-file SHA-256 comparison (`create`, `update`, `unchanged`), then apply. Updates need `overwrite=true`, every upload is read back and verified, secrets and symbolic links are refused, and nothing is ever deleted |
+| Create or update a CODE agent definition | `ensure_aidp_agent`: plan, then apply. It creates a `DRAFT` agent that points to the uploaded entry and dependency files, like the Workbench UI does. No compute is attached and nothing is deployed |
+| Inspect agents, deployments, sessions, messages, and traces | `list_aidp_agents`, `get_aidp_agent`, `list_aidp_agent_sessions`, `get_aidp_agent_session_messages`, `get_aidp_agent_trace` (read-only; traces omit span attributes) |
+| Send a message to a deployed agent | `invoke_aidp_agent`, with `confirm_invoke=true`; the endpoint comes only from the agent's active deployment |
+
+Upload and agent creation are verified on AI DP. Deployment on AI Compute and
+live invocation are the next step. Agent code lives in its own repository;
+list that folder in `AIDP_ALLOWED_ROOTS` so the server may upload from it.
 
 ## Roadmap
 
@@ -78,9 +99,11 @@ Ask Codex, in plain language, for example:
 | --- | --- |
 | ✅ Done | Guarded MCP server, installable and usable from any project |
 | ✅ Done | Skills infrastructure and the first operational skill |
-| 🔜 Next | Experiment: deploy a code-first LangGraph agent to AI DP AI Compute |
-| 🔜 Next | Agent tools in the MCP server: upload code, deploy, invoke, traces |
+| ✅ Done | Agent observation and guarded invocation tools |
+| ✅ Done | Agent code upload and draft agent creation, verified on AI DP |
+| 🔜 Next | Deploy and redeploy code-first agents on AI Compute, and verify invocation live |
 | 🔜 Next | Agent authoring and deployment skills, based on verified facts |
+| 🔜 Next | Agents that call OCI Generative AI models, with verified IAM policies |
 
 ## Quick start
 
