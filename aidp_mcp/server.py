@@ -71,6 +71,44 @@ def get_agent(agent_name: str) -> dict:
 
 
 @MCP.tool()
+def list_agent_sessions(agent_name: str, max_results: int = 25) -> dict:
+    """List bounded, newest-first sessions for one exact-name agent.
+
+    This read-only tool matches case-sensitively and returns metadata only.
+    """
+    return agents.list_agent_sessions(_settings(), agent_name, max_results)
+
+
+@MCP.tool()
+def get_agent_session_messages(
+    agent_name: str, session_id: str, max_characters: int = 12000
+) -> dict:
+    """Read bounded messages for an exact-name agent session when authorized.
+
+    This read-only tool matches agent names case-sensitively. Messages can
+    contain application data, like job-run output; text is bounded and only
+    metadata keys, never metadata values, are returned.
+    """
+    return agents.get_agent_session_messages(
+        _settings(), agent_name, session_id, max_characters
+    )
+
+
+@MCP.tool()
+def get_agent_trace(
+    agent_name: str, session_id: str, trace_key: str, max_spans: int = 100
+) -> dict:
+    """Read bounded trace spans for one exact-name agent session.
+
+    This read-only tool matches agent names case-sensitively. Prompt-bearing
+    span attributes are never returned; only bounded error-event messages are.
+    """
+    return agents.get_agent_trace(
+        _settings(), agent_name, session_id, trace_key, max_spans
+    )
+
+
+@MCP.tool()
 def find_notebook_jobs(workspace_notebook_path: str, max_results: int = 100) -> dict:
     """List workflow jobs whose workspace notebook task uses one exact notebook.
 

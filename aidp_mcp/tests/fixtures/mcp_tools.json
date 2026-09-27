@@ -98,6 +98,78 @@
     "name": "get_agent"
   },
   {
+    "description": "List bounded, newest-first sessions for one exact-name agent.\n\nThis read-only tool matches case-sensitively and returns metadata only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_name": {
+          "type": "string"
+        },
+        "max_results": {
+          "default": 25,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "agent_name"
+      ],
+      "type": "object"
+    },
+    "name": "list_agent_sessions"
+  },
+  {
+    "description": "Read bounded messages for an exact-name agent session when authorized.\n\nThis read-only tool matches agent names case-sensitively. Messages can\ncontain application data, like job-run output; text is bounded and only\nmetadata keys, never metadata values, are returned.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_name": {
+          "type": "string"
+        },
+        "max_characters": {
+          "default": 12000,
+          "type": "integer"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_name",
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "name": "get_agent_session_messages"
+  },
+  {
+    "description": "Read bounded trace spans for one exact-name agent session.\n\nThis read-only tool matches agent names case-sensitively. Prompt-bearing\nspan attributes are never returned; only bounded error-event messages are.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_name": {
+          "type": "string"
+        },
+        "max_spans": {
+          "default": 100,
+          "type": "integer"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "trace_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_name",
+        "session_id",
+        "trace_key"
+      ],
+      "type": "object"
+    },
+    "name": "get_agent_trace"
+  },
+  {
     "description": "List workflow jobs whose workspace notebook task uses one exact notebook.\n\n`workspace_notebook_path` must be absolute and rooted at `/Workspace`.\nThis read-only search returns sanitized job and matching-task metadata.",
     "inputSchema": {
       "additionalProperties": false,

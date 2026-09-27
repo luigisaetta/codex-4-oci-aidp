@@ -309,3 +309,14 @@ describing the blocker in "Verification evidence".
   `list_agents` and `get_agent`; all existing entries are byte-identical.
 * Manual AI DP verification remains pending. No OCI resource was created or
   modified by this step.
+
+2026-09-27, execution-plan step 2:
+
+* Offline verification passed for bounded newest-first sessions, bounded
+  session-message text with metadata keys only, and ordered trace spans with
+  attributes omitted and bounded error events only.
+* The MCP contract snapshot intentionally adds `list_agent_sessions`,
+  `get_agent_session_messages`, and `get_agent_trace`; previously committed
+  entries are byte-identical.
+* Manual AI DP verification remains pending. No OCI resource was created or
+  modified by this step.
