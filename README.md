@@ -23,12 +23,18 @@ curl -fL 'https://github.com/oracle-samples/aidataplatform-sdk/releases/download
 echo '9cd99a1196b89e9a3354f8b9111ce59412efb23c4888e56126e3a2ca2364c3ba  .deps/aidp-python-client-4.2.1.zip' | shasum -a 256 -c -
 unzip -o .deps/aidp-python-client-4.2.1.zip '*.whl' -d .deps
 python -m pip install -r requirements-dev.txt
+python -m pip install --no-deps -e .
 ```
 
 Run these commands from the repository root. Stop if the checksum check fails.
 Oracle distributes the Python SDK as a wheel inside the release ZIP, so download
 and extract it before installing requirements. `.deps/` is ignored by Git.
 For runtime-only installation, use `requirements.txt` in the final command.
+The supported package installation mode is editable only. It keeps
+`aidp_common` and `aidp_mcp` associated with this checkout, so the repository
+default `.env` and local upload-root behavior remain valid. A non-editable
+installation is unsupported; if used anyway, set both `AIDP_ENV_FILE` and
+`AIDP_ALLOWED_ROOTS` explicitly.
 
 ## Dependencies
 

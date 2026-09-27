@@ -1,3 +1,26 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-4-oci-aidp"
+version = "0.1.0"
+description = "Specifications and tools for OCI AI Data Platform evaluation."
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "aidp-python-client==4.2.1",
+    "oci==2.165.1",
+    "python-dotenv==1.2.3",
+    "fastmcp==3.4.5",
+]
+
+[project.scripts]
+aidp-mcp = "aidp_mcp.server:main"
+
+[tool.setuptools]
+packages = ["aidp_common", "aidp_mcp"]
+
 [tool.black]
 line-length = 88
 target-version = ["py311"]

@@ -13,6 +13,8 @@ from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
 
+# Editable installs import this module from the checkout, preserving this root.
+# Non-editable installs are deliberately unsupported; see the root README.
 DEFAULT_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 CONNECTION_FIELDS = {
     "compartment": ("COMPARTMENT", None),
@@ -56,20 +58,33 @@ def connection_parser(
         Parser, settings lookup callable, and selected dotenv path.
     """
     bootstrap = parser_class(add_help=False)
-    bootstrap.add_argument("--env-file", default=str(default_env_file))
+    bootstrap.add_argument("--env-file")
     initial, _ = bootstrap.parse_known_args(argv)
-    env_path = Path(initial.env_file).expanduser()
+    selected_by = None
+    if initial.env_file:
+        env_path = Path(initial.env_file).expanduser()
+        selected_by = "--env-file"
+    elif os.environ.get("AIDP_ENV_FILE"):
+        env_path = Path(os.environ["AIDP_ENV_FILE"]).expanduser()
+        selected_by = "AIDP_ENV_FILE"
+        if not env_path.is_absolute():
+            bootstrap.error("AIDP_ENV_FILE must be an absolute path.")
+    else:
+        env_path = Path(default_env_file).expanduser()
+    bootstrap.set_defaults(env_file=str(env_path))
     parser = parser_class(parents=[bootstrap], description=description)
     if (
-        initial.env_file != str(default_env_file)
+        selected_by
         and not env_path.is_file()
         and not any(arg in ("-h", "--help") for arg in (argv or []))
     ):
-        parser.error("The explicitly selected .env file does not exist.")
+        parser.error(f"The file selected by {selected_by} does not exist.")
     try:
         values = {**dotenv_values(env_path, interpolate=False), **os.environ}
     except OSError:
-        parser.error("Cannot read the selected .env file.")
+        if selected_by:
+            parser.error(f"Cannot read the file selected by {selected_by}.")
+        parser.error("Cannot read the repository default .env file.")
 
     def setting(name, default=None):
         value = values.get(name)

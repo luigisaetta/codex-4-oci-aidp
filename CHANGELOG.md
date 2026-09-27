@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-27: Add editable-install metadata and the `aidp-mcp` command; allow
+  a process-level `AIDP_ENV_FILE` to select explicit AI DP settings for MCP
+  and command-line tools.
+
 * 2026-09-27: Require absolute MCP upload paths when multiple allowed local
   roots are configured, preventing a relative path from silently selecting a
   same-named notebook in the server repository.

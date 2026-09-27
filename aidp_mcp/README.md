@@ -18,8 +18,9 @@ Run the setup in the repository root first:
 
 * The `codex-4-oci-aidp` Conda environment exists and contains the project
   dependencies.
-* The root `.env` is present, based on [`.env.example`](../.env.example), and
-  contains the non-secret connection settings required by `aidp_common`.
+* Either the root `.env` is present, based on [`.env.example`](../.env.example),
+  or `AIDP_ENV_FILE` names an absolute external settings file. Both contain
+  the non-secret connection settings required by `aidp_common`.
 * The selected OCI profile and private key are available locally and the
   authenticated identity has the AI DP permissions required for the requested
   action.
@@ -36,6 +37,16 @@ the next request (process environment variables still take precedence). A
 deleted or renamed target can fail once, clears its cached target on HTTP 404,
 and is resolved again by the following request. Prefer a compartment OCID over
 a name to avoid the initial OCI Identity lookup.
+
+### Settings-file selection
+
+The server reads the repository `.env` by default. Set `AIDP_ENV_FILE` in the
+server process environment to select a different, absolute settings-file path;
+the value cannot be defined inside dotenv. This lets one installed server use
+separate settings for distinct AI DP environments. For command-line features,
+`--env-file` takes precedence over `AIDP_ENV_FILE`; for the MCP server, the
+precedence is `AIDP_ENV_FILE` then the repository default. A missing or
+relative `AIDP_ENV_FILE` is rejected without exposing its path.
 
 ### Local upload roots
 
@@ -76,15 +87,42 @@ credentials, notebook content, volume-file content, or arbitrary SDK payloads.
 
 ## Use with Codex
 
-Register the local stdio server once with the Codex CLI:
+Preferred: install the editable package and register its command once with the
+Codex CLI. Install dependencies first, then run:
 
 ```bash
-codex mcp add aidp-mcp -- "$(pwd)/scripts/start_aidp_mcp.sh"
+conda activate codex-4-oci-aidp
+python -m pip install --no-deps -e .
+conda run -n codex-4-oci-aidp python -c "import shutil; print(shutil.which('aidp-mcp'))"
 ```
 
-The command stores the launcher path in Codex configuration; it does not store
-OCI credentials, private keys, OCIDs, endpoints, or `.env` values. Confirm the
-registration:
+Copy the printed absolute executable path into one of these registrations:
+
+```bash
+# Use the repository default .env.
+codex mcp add aidp-mcp -- /absolute/path/to/aidp-mcp
+
+# Or select an external settings file for this server.
+codex mcp add aidp-mcp \
+  --env AIDP_ENV_FILE=/absolute/path/to/aidp.env \
+  -- /absolute/path/to/aidp-mcp
+```
+
+The equivalent `~/.codex/config.toml` configuration is:
+
+```toml
+[mcp_servers.aidp-mcp]
+command = "/absolute/path/to/aidp-mcp"
+
+[mcp_servers.aidp-mcp.env]
+AIDP_ENV_FILE = "/absolute/path/to/aidp.env"
+```
+
+The command stores the executable path and optional settings-file path in
+Codex configuration; it does not store OCI credentials, private keys, OCIDs,
+or endpoints. The `--env` CLI syntax and `env` table were verified on
+2026-09-27 against [official OpenAI Codex MCP documentation](https://developers.openai.com/codex/mcp/).
+Confirm the registration:
 
 ```bash
 codex mcp list
@@ -96,8 +134,14 @@ concrete, scoped action, for example: “List external volumes in catalog
 `<catalog-name>`” or “Plan the upload of `notebooks/example.ipynb` to
 `examples/example.ipynb`."
 
-After registration, the launcher can be used from any Codex project; it
-changes into its own repository root before importing the MCP server.
+The existing launcher remains supported and passes a caller-provided
+`AIDP_ENV_FILE` through unchanged:
+
+```bash
+codex mcp add aidp-mcp-launcher -- "$(pwd)/scripts/start_aidp_mcp.sh"
+```
+
+After registration, either launch method can be used from any Codex project.
 
 To replace the registration after moving the repository, remove it and add it
 again from the new repository root:

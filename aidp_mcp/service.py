@@ -127,12 +127,25 @@ def load_connection_settings():
     Raises:
         AidpError: The project configuration is incomplete or invalid.
     """
-    parser, setting, _ = connection_parser(
+    parser, setting, env_path = connection_parser(
         [],
         "Run AI DP notebook workflow MCP tools.",
         parser_class=McpArgumentParser,
     )
     args = parser.parse_args([])
+    missing_required = any(
+        not getattr(args, name, None)
+        for name in ("compartment", "profile", "config_file", "region")
+    )
+    if (
+        missing_required
+        and not env_path.is_file()
+        and not os.environ.get("AIDP_ENV_FILE")
+    ):
+        parser.error(
+            "Configuration is unavailable: create the root .env file or set "
+            "AIDP_ENV_FILE to an absolute settings-file path."
+        )
     validate_connection(args, parser)
     if not args.workspace_name:
         parser.error("Set WORKSPACE_NAME before using AI DP MCP tools.")

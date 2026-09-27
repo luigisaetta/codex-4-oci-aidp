@@ -9,8 +9,9 @@
 #   * Root .env with OCI_CONFIG_FILE and OCI_PROFILE, or a valid OCI default
 #
 # Inputs:
-#   AIDP_ENV_FILE optionally selects an alternative dotenv file. The file is
-#   parsed as data; it is never sourced as shell code.
+#   AIDP_ENV_FILE optionally selects an alternative dotenv file using an
+#   absolute path. The file is parsed as data; it is never sourced as shell
+#   code.
 #
 # Side effects:
 #   Starts a local stdio MCP process. OCI is contacted only if an MCP tool runs

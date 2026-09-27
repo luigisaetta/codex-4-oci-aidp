@@ -1,6 +1,7 @@
 # Local Python artifacts and credentials must not enter version control.
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 .deps/
 .env
