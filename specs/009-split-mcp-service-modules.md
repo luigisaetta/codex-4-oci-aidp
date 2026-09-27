@@ -355,6 +355,17 @@ Micro-step 2d — target client contexts (commit `Extract MCP target clients`,
 the full suite passed 196 tests, Black was clean, Pylint scored 10.00/10,
 `git diff --check` was clean, and the MCP snapshot was unchanged.
 
+Step 3 — volumes (commit `Extract MCP volume operations`, 2026-09-27): moved
+the real catalog/volume discovery, exact catalog/schema/volume resolution,
+summaries, mount-path normalization, bounded tree construction, and shallow
+recursive-tree traversal to `volumes.py` (409 lines). `service.py` is 1,113
+lines and delegates the two public operations to that domain module; all six
+related tests moved to `test_volumes.py`, where client and pagination patches
+target `volumes`. The MCP suite collected 113 tests; the full suite passed 196
+tests, Black was clean, Pylint scored 10.00/10, `git diff --check` was clean,
+and the MCP snapshot was unchanged. Manual local MCP verification confirmed
+that the expected 12 tools remain registered.
+
 Remote verification: pending. In an authorized new Codex session, call
 `get_cluster_status` and `list_notebooks`, then plan one notebook upload with
 `apply=false`; record only sanitized results.
