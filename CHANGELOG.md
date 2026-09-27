@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-27: Add plan-by-default MCP tools to safely upload allowed local
+  agent code and reconcile a compute-free CODE agent definition without
+  deployment.
+
 * 2026-09-27: Redact OCIDs from non-success AI DP agent invocation excerpts and
   make the `invoke_aidp_agent` MCP description consistent with other agent
   tools.

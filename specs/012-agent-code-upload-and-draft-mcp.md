@@ -391,3 +391,17 @@ describing the blocker in "Verification evidence".
   or agent update was made on OCI AI DP. Live confirmation of the service's
   `create_agent` and `update_agent` behavior, including ETag handling, remains
   pending the explicit verification procedure above.
+
+2026-09-27, execution-plan step 5:
+
+* Updated the MCP README tool inventory, code layout, local upload-root scope,
+  and agent-code workflow. The workflow records the required upload-before-
+  definition sequence and explicitly retains the no-compute, no-deployment,
+  no-delete boundaries. No separate `agents-4-ai-dp` workflow note exists in
+  this repository, so the server README is the maintained operator guidance.
+* Updated the Unreleased changelog. The MCP tool-contract snapshot was
+  intentionally confirmed without change: it contains the two new tools from
+  steps 3 and 4, and the existing tool contracts remain byte-identical.
+* Local documentation and snapshot verification only; no OCI AI DP operation
+  was attempted. The live verification and cleanup procedure remains pending
+  explicit authorization.

@@ -51,16 +51,17 @@ relative `AIDP_ENV_FILE` is rejected without exposing its path.
 ### Local upload roots
 
 `AIDP_ALLOWED_ROOTS` optionally lists local directories from which notebooks
-may be uploaded, separated by the operating system path separator (`:` on
-macOS and Linux). An empty or absent value permits only this repository. Each
-configured directory must exist and cannot be the filesystem root, the user's
-home directory, or an ancestor of the home directory. These limits prevent an
-MCP tool from reading broadly scoped local configuration or key material.
+and agent-code folders may be uploaded, separated by the operating system path
+separator (`:` on macOS and Linux). An empty or absent value permits only this
+repository. Each configured directory must exist and cannot be the filesystem
+root, the user's home directory, or an ancestor of the home directory. These
+limits prevent an MCP tool from reading broadly scoped local configuration or
+key material.
 
 The setting is operator configuration in `.env` or the process environment,
-not an `upload_notebook` parameter. A model therefore cannot expand its own
+not an upload-tool parameter. A model therefore cannot expand its own
 local-file access. Symbolic links are resolved before the containment check.
-Provide an absolute `local_path` whenever an `AIDP_ALLOWED_ROOTS` directory is
+Provide an absolute local path whenever an `AIDP_ALLOWED_ROOTS` directory is
 configured. Relative paths are accepted only with the default repository root,
 so an explicitly configured root cannot silently resolve a server-repository
 file.
@@ -69,14 +70,16 @@ file.
 
 `server.py` is the MCP adapter: it loads validated settings for each tool
 request and calls the Python domain API directly. `agents.py`, `notebooks.py`,
-`jobs.py`, `clusters.py`, and `volumes.py` are those domain modules; each receives
-validated settings explicitly. `agents.py` performs read-only agent observation
-and the confirmation-gated, OCI-signed deployment invocation. `config.py`,
-`local_files.py`, `targets.py`, `lookups.py`, `validation.py`, and `safety.py`
-are shared modules, with `safety.py` centralizing explicit mutation
-confirmation. Dependencies flow from `server.py` to domain modules, then shared
-modules, and finally `aidp_common`; domain modules must not depend on one
-another.
+`jobs.py`, `clusters.py`, and `volumes.py` are those domain modules; each
+receives validated settings explicitly. `agents.py` performs agent observation,
+guarded code upload and CODE-definition reconciliation, and confirmation-gated
+OCI-signed deployment invocation. `workspace_files.py` supplies shared
+workspace object reads, file uploads, and folder creation to agents and
+notebooks. `config.py`, `local_files.py`, `targets.py`, `lookups.py`,
+`validation.py`, and `safety.py` are shared modules, with `safety.py`
+centralizing explicit mutation confirmation. Dependencies flow from
+`server.py` to domain modules, then shared modules, and finally `aidp_common`;
+domain modules must not depend on one another.
 
 ## Tools
 
@@ -89,6 +92,8 @@ another.
 | `list_aidp_agent_sessions` | Read-only | Lists bounded, newest-first sessions for one exact-name agent. |
 | `get_aidp_agent_session_messages` | Read-only | Retrieves bounded session messages for an exact-name agent; messages can contain application data. |
 | `get_aidp_agent_trace` | Read-only | Retrieves bounded, sanitized trace spans for an exact-name agent session. |
+| `upload_aidp_agent_code` | Mutation, plan by default | Safely compares or uploads an allowed-root local agent folder to an absolute `/Workspace/...` directory. Set `apply=true` to write; replacing changed files also requires `overwrite=true`. Secret-like files and symbolic links are refused, and remote-only files are reported but never deleted. |
+| `ensure_aidp_agent` | Mutation, plan by default | Plans or creates/minimally updates an exact-name CODE agent definition whose entry and optional dependency file already exist in the workspace. Set `apply=true` to write. It never attaches compute, deploys, redeploys, or changes guardrails, sessions, or cards. |
 | `invoke_aidp_agent` | Confirmation-gated | Sends one bounded message to the exact-name agent's sole ACTIVE deployment. Requires `confirm_invoke=true`; it creates a session and can consume compute or trigger agent-tool side effects. |
 | `find_notebook_jobs` | Read-only | Finds workflow jobs in the configured workspace that use one exact `/Workspace/...ipynb` notebook. |
 | `list_catalog_volumes` | Read-only | Lists visible schemas and volumes in one exact catalog. By default, only external Object Storage volumes are returned. |
@@ -104,6 +109,24 @@ another.
 All collection and output tools enforce local bounds. The server uses exact
 resource matching where applicable and returns sanitized metadata rather than
 credentials, notebook content, volume-file content, or arbitrary SDK payloads.
+
+### Agent code workflow
+
+Use the two plan-by-default agent tools in this order. First run
+`upload_aidp_agent_code` with the approved local folder and an explicit
+`/Workspace/...` destination. Review its content-hash plan, including any
+`remote_only` files; use `apply=true` only when authorized, and use
+`overwrite=true` only after reviewing changed remote files. Then run
+`ensure_aidp_agent` with paths relative to that workspace folder, such as
+`entry_file="hello_agent.py"` and `dependencies_file="requirements.txt"`.
+It verifies those remote files before producing its plan. Applying the plan
+creates or updates only the three CODE-definition fields it reports.
+
+Neither tool deploys an agent or attaches AI Compute. A deployed agent's
+definition changes require a separate, authorized redeploy workflow before
+they take effect. The tools do not delete workspace files, folders, agents, or
+deployments. See [specification 012](../specs/012-agent-code-upload-and-draft-mcp.md)
+for acceptance criteria, live-verification prerequisites, and cleanup steps.
 
 ## Use with Codex
 
