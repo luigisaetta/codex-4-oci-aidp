@@ -52,7 +52,7 @@ def find_notebook_jobs(settings, workspace_notebook_path, max_results=100):
     matches = []
     page = None
     with workspace_clients(settings) as clients:
-        instance_id, workspace_key, _, _, workflows = clients
+        instance_id, workspace_key, _, _, workflows, _ = clients
         while len(matches) < max_results:
             response = workflows.list_jobs(
                 instance_id,
@@ -122,7 +122,7 @@ def list_job_runs(settings, job_name=None, job_key=None, max_results=25):
     page = None
     runs = []
     with workspace_clients(settings) as clients:
-        instance_id, workspace_key, _, _, workflows = clients
+        instance_id, workspace_key, _, _, workflows, _ = clients
         if job_name is not None:
             job = _find_job(workflows, instance_id, workspace_key, job_name)
             if job is None:
@@ -201,7 +201,7 @@ def ensure_notebook_job(
     ):
         raise AidpError("Job location must be below /Workspace.")
     with workspace_clients(settings) as clients:
-        instance_id, workspace_key, cluster_client, _, workflows = clients
+        instance_id, workspace_key, cluster_client, _, workflows, _ = clients
         target = find_cluster(cluster_client, instance_id, workspace_key, cluster_name)
         response = _find_job(workflows, instance_id, workspace_key, job_name)
         action = "create" if response is None else "update"
@@ -277,7 +277,7 @@ def start_notebook_job(
     if not isinstance(timeout_seconds, int) or timeout_seconds < 1:
         raise AidpError("timeout_seconds must be a positive integer.")
     with workspace_clients(settings) as clients:
-        instance_id, workspace_key, cluster_client, _, workflows = clients
+        instance_id, workspace_key, cluster_client, _, workflows, _ = clients
         response = _find_job(workflows, instance_id, workspace_key, job_name)
         if response is None or not _is_supported_job(response.data):
             raise AidpError("Job must be an existing managed single notebook task.")
@@ -338,7 +338,7 @@ def get_job_run(settings, job_run_key):
     """
     validate_resource_key(job_run_key)
     with workspace_clients(settings) as clients:
-        instance_id, workspace_key, _, _, workflows = clients
+        instance_id, workspace_key, _, _, workflows, _ = clients
         response = workflows.get_job_run(instance_id, workspace_key, job_run_key)
         return _run_response(response.data, job_run_key)
 
@@ -369,7 +369,7 @@ def get_job_run_output(
             f"{MAX_JOB_RUN_OUTPUT_CHARACTERS}."
         )
     with workspace_clients(settings) as clients:
-        instance_id, workspace_key, _, _, workflows = clients
+        instance_id, workspace_key, _, _, workflows, _ = clients
         task_runs = oci.pagination.list_call_get_all_results(
             workflows.list_task_runs,
             instance_id,

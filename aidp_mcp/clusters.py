@@ -32,7 +32,7 @@ def get_cluster_status(settings, cluster_name):
     if not isinstance(cluster_name, str) or not cluster_name.strip():
         raise AidpError("Cluster name must be a nonempty string.")
     with workspace_clients(settings) as clients:
-        instance_id, workspace_key, clusters, _, _ = clients
+        instance_id, workspace_key, clusters, _, _, _ = clients
         cluster = find_cluster_status(
             clusters, instance_id, workspace_key, cluster_name
         )
@@ -78,7 +78,7 @@ def set_cluster_state(
     ):
         raise AidpError("timeout_seconds must be a positive integer.")
     with workspace_clients(settings) as clients:
-        instance_id, workspace_key, clusters, _, _ = clients
+        instance_id, workspace_key, clusters, _, _, _ = clients
         response = find_cluster_details(
             clusters, instance_id, workspace_key, cluster_name
         )

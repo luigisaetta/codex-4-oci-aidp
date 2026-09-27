@@ -100,7 +100,7 @@ def test_get_job_run_output_fetches_the_single_task_output(monkeypatch):
 
     @contextmanager
     def clients():
-        yield "instance", "workspace", Mock(), Mock(), workflows
+        yield "instance", "workspace", Mock(), Mock(), workflows, Mock()
 
     monkeypatch.setattr(jobs, "workspace_clients", lambda _settings: clients())
     list_results = Mock(return_value=SimpleNamespace(data=[task_run]))
@@ -165,7 +165,7 @@ def test_find_notebook_jobs_matches_workspace_tasks_and_paginates(monkeypatch):
 
     @contextmanager
     def clients():
-        yield "instance", "workspace", Mock(), Mock(), workflows
+        yield "instance", "workspace", Mock(), Mock(), workflows, Mock()
 
     monkeypatch.setattr(jobs, "workspace_clients", lambda _settings: clients())
 
@@ -215,7 +215,7 @@ def test_find_notebook_jobs_reports_conservative_truncation(monkeypatch):
 
     @contextmanager
     def clients():
-        yield "instance", "workspace", Mock(), Mock(), workflows
+        yield "instance", "workspace", Mock(), Mock(), workflows, Mock()
 
     monkeypatch.setattr(jobs, "workspace_clients", lambda _settings: clients())
 
@@ -270,7 +270,7 @@ def test_list_job_runs_resolves_name_and_paginates_newest_first(monkeypatch):
 
     @contextmanager
     def clients():
-        yield "instance", "workspace", Mock(), Mock(), workflows
+        yield "instance", "workspace", Mock(), Mock(), workflows, Mock()
 
     monkeypatch.setattr(jobs, "workspace_clients", lambda _settings: clients())
 
@@ -317,7 +317,7 @@ def test_list_job_runs_accepts_a_key_without_job_discovery(monkeypatch):
 
     @contextmanager
     def clients():
-        yield "instance", "workspace", Mock(), Mock(), workflows
+        yield "instance", "workspace", Mock(), Mock(), workflows, Mock()
 
     monkeypatch.setattr(jobs, "workspace_clients", lambda _settings: clients())
 

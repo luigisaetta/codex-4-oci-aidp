@@ -13,7 +13,7 @@ import oci
 import pytest
 
 from aidp_common.connection import AidpError
-from aidp_mcp import local_files, notebooks
+from aidp_mcp import local_files, notebooks, workspace_files
 
 
 def test_upload_plan_uses_matching_extra_root_without_remote_write(
@@ -29,7 +29,7 @@ def test_upload_plan_uses_matching_extra_root_without_remote_write(
 
     @contextmanager
     def clients():
-        yield "instance", "workspace", Mock(), Mock(), Mock()
+        yield "instance", "workspace", Mock(), Mock(), Mock(), Mock()
 
     missing = oci.exceptions.ServiceError(404, "NotFound", {}, "missing")
     request = Mock(side_effect=missing)
@@ -65,7 +65,7 @@ def test_upload_notebook_validates_the_local_path_once(tmp_path, monkeypatch):
 
     @contextmanager
     def clients():
-        yield "instance", "workspace", Mock(), Mock(), Mock()
+        yield "instance", "workspace", Mock(), Mock(), Mock(), Mock()
 
     monkeypatch.setattr(notebooks, "workspace_clients", lambda _settings: clients())
     monkeypatch.setattr(local_files, "validate_local_path", path_validation)
@@ -121,7 +121,7 @@ def test_directory_conflict_is_a_retained_workspace_folder():
         message="Directory already exists",
     )
 
-    assert notebooks.is_existing_folder_error(error)
+    assert workspace_files.is_existing_folder_error(error)
 
 
 def test_list_notebooks_paginates_and_filters_metadata(monkeypatch):
@@ -161,7 +161,7 @@ def test_list_notebooks_paginates_and_filters_metadata(monkeypatch):
 
     @contextmanager
     def clients():
-        yield "instance", "workspace", Mock(), notebook_client, Mock()
+        yield "instance", "workspace", Mock(), notebook_client, Mock(), Mock()
 
     monkeypatch.setattr(notebooks, "workspace_clients", lambda _settings: clients())
     request = Mock(side_effect=[first_page, second_page])

@@ -338,4 +338,14 @@ describing the blocker in "Verification evidence".
 
 ## Verification evidence
 
-Pending implementation.
+2026-09-27, execution-plan step 1:
+
+* Implemented `workspace_files.py` with a dedicated, request-scoped
+  `WorkspaceObjectClient` supplied by `workspace_clients`. It preserves the
+  existing folder-creation behavior and adds encoded-final-segment binary file
+  reads and raw binary file uploads without retries.
+* Offline tests cover the folder conflict behavior, encoded file read, missing
+  file handling, binary upload headers and body, workspace-path safety, and
+  the dedicated client context. Notebook regression tests passed locally.
+* No workspace folder or file was created remotely. The exact production file
+  upload header requirements remain pending live verification.

@@ -76,7 +76,7 @@ def test_set_cluster_state_starts_stopped_cluster_with_etag(monkeypatch):
 
     @contextmanager
     def clients():
-        yield "instance", "workspace", cluster_client, Mock(), Mock()
+        yield "instance", "workspace", cluster_client, Mock(), Mock(), Mock()
 
     monkeypatch.setattr(clusters, "workspace_clients", lambda _settings: clients())
     monkeypatch.setattr(
@@ -114,7 +114,7 @@ def test_set_cluster_state_does_not_resubmit_active_start(monkeypatch):
 
     @contextmanager
     def clients():
-        yield "instance", "workspace", cluster_client, Mock(), Mock()
+        yield "instance", "workspace", cluster_client, Mock(), Mock(), Mock()
 
     monkeypatch.setattr(clusters, "workspace_clients", lambda _settings: clients())
     monkeypatch.setattr(
@@ -137,7 +137,7 @@ def test_set_cluster_state_stops_active_cluster(monkeypatch):
 
     @contextmanager
     def clients():
-        yield "instance", "workspace", cluster_client, Mock(), Mock()
+        yield "instance", "workspace", cluster_client, Mock(), Mock(), Mock()
 
     monkeypatch.setattr(clusters, "workspace_clients", lambda _settings: clients())
     monkeypatch.setattr(

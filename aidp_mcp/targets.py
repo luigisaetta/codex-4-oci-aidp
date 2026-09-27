@@ -19,6 +19,7 @@ from aidp_python_client.aidataplatform_dp import (
     VolumeClient,
     WorkflowClient,
     WorkspaceClient,
+    WorkspaceObjectClient,
 )
 
 from aidp_common.connection import (
@@ -217,12 +218,20 @@ def workspace_clients(settings):
             workbench_options,
             preserve_timestamps=True,
         )
+        workspace_objects = managed_client(
+            resources,
+            WorkspaceObjectClient,
+            config,
+            workbench_options,
+            preserve_timestamps=True,
+        )
         yield (
             target.instance_id,
             target.workspace_key,
             clusters,
             notebooks,
             workflows,
+            workspace_objects,
         )
     except oci.exceptions.ServiceError as exc:
         if cache_hit and exc.status == 404:

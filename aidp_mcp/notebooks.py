@@ -21,6 +21,7 @@ from aidp_mcp.validation import (
     validate_workspace_path,
     workspace_content_path,
 )
+from aidp_mcp.workspace_files import create_workspace_folder
 
 MAX_NOTEBOOK_LIST_RESULTS = 1000
 
@@ -114,63 +115,6 @@ def is_missing_content_error(error):
     )
 
 
-def is_existing_folder_error(error):
-    """Identify AI DP's conflict response for a pre-existing workspace folder.
-
-    Args:
-        error: OCI service error from the workspace objects API.
-
-    Returns:
-        bool: Whether the service reports that the requested directory exists.
-    """
-    return (
-        error.status == 409
-        and getattr(error, "code", None) == "Conflict"
-        and "directory already exists" in str(getattr(error, "message", "")).lower()
-    )
-
-
-def create_workspace_folder(notebooks, instance_id, workspace_key, folder_path):
-    """Create or retain one workspace folder through the documented objects API.
-
-    Args:
-        notebooks: Generated notebook client with the configured endpoint and
-            signer.
-        instance_id: Selected AI DP instance OCID.
-        workspace_key: Selected workspace key.
-        folder_path: Absolute folder path below `/Workspace`.
-
-    Raises:
-        AidpError: The service does not accept the folder creation request.
-    """
-    try:
-        response = notebooks.base_client.call_api(
-            resource_path=(
-                "/aiDataPlatforms/{aiDataPlatformId}/workspaces/{workspaceKey}/objects"
-            ),
-            method="POST",
-            path_params={
-                "aiDataPlatformId": instance_id,
-                "workspaceKey": workspace_key,
-            },
-            header_params={
-                "accept": "*/*",
-                "content-type": "application/octet-stream",
-                "path": folder_path,
-                "type": "FOLDER",
-                "is-overwrite": "true",
-            },
-            body=b"",
-            response_type=None,
-        )
-    except oci.exceptions.ServiceError as exc:
-        if is_existing_folder_error(exc):
-            return
-        raise
-    if response.status not in (200, 201):
-        raise AidpError(f"Workspace folder creation returned HTTP {response.status}.")
-
-
 def _notebook_summary(item):
     """Return selected notebook metadata without creator, tags, or content."""
     return {
@@ -202,10 +146,10 @@ def upload_notebook(settings, local_path, workspace_path, overwrite=False, apply
     destination = validate_workspace_path(workspace_path)
     service_path = workspace_content_path(destination)
     with workspace_clients(settings) as clients:
-        instance_id, workspace_key, _, notebooks, _ = clients
+        instance_id, workspace_key, _, notebooks, _, workspace_objects = clients
         try:
             remote = notebook_content_request(
-                notebooks,
+                workspace_objects,
                 instance_id=instance_id,
                 workspace_key=workspace_key,
                 method="GET",
@@ -303,7 +247,7 @@ def list_notebooks(settings, path="/Workspace", name_contains=None, max_results=
     summaries = []
     page = None
     with workspace_clients(settings) as clients:
-        instance_id, workspace_key, _, notebooks, _ = clients
+        instance_id, workspace_key, _, notebooks, _, _ = clients
         while len(summaries) < max_results:
             response = workspace_objects_request(
                 notebooks,

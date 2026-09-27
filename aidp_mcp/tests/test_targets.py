@@ -225,6 +225,28 @@ def test_agent_clients_use_the_workspace_target_and_preserve_timestamps(monkeypa
     assert managed.call_args.kwargs["preserve_timestamps"] is True
 
 
+def test_workspace_clients_include_a_dedicated_workspace_object_client(monkeypatch):
+    """Workspace object operations use a configured client separate from notebooks."""
+    settings = _target_settings()
+    managed = Mock(return_value=Mock())
+    monkeypatch.setattr(
+        targets, "load_auth", Mock(return_value=({"tenancy": "tenancy"}, {}))
+    )
+    monkeypatch.setattr(
+        targets,
+        "_resolve_target",
+        Mock(return_value=(targets.ResolvedTarget("instance", "workspace"), (), False)),
+    )
+    monkeypatch.setattr(targets, "managed_client", managed)
+
+    with targets.workspace_clients(settings) as clients:
+        assert clients[:2] == ("instance", "workspace")
+        assert len(clients) == 6
+
+    assert managed.call_args_list[-1].args[1] is targets.WorkspaceObjectClient
+    assert managed.call_args_list[-1].kwargs["preserve_timestamps"] is True
+
+
 def test_named_compartment_uses_instance_compartment_lookup():
     """An explicit instance avoids tenancy-wide compartment enumeration."""
     identity = Mock()
