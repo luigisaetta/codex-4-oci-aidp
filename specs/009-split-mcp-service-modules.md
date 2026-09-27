@@ -378,6 +378,18 @@ Black was clean, Pylint scored 10.00/10, `git diff --check` was clean, and the
 MCP snapshot was unchanged. Manual local MCP verification confirmed that the
 expected 12 tools remain registered.
 
+Step 5 — jobs (commit `Extract MCP job operations`, 2026-09-27): moved real
+managed notebook-job discovery, reconciliation, submission, run status,
+bounded output retrieval, polling, job/task helpers, and job constants to
+`jobs.py` (518 lines). `service.py` is 549 lines and delegates the six public
+job operations while using `jobs.MAX_JOB_RUN_OUTPUT_CHARACTERS` for the
+unchanged output-method default. The related tests moved to `test_jobs.py`,
+whose client, pagination, and helper patches target `jobs`. The MCP suite
+collected 113 tests; the full suite passed 196 tests, Black was clean, Pylint
+scored 10.00/10, `git diff --check` was clean, and the MCP snapshot was
+unchanged. Manual local MCP verification confirmed that the expected 12 tools
+remain registered.
+
 Remote verification: pending. In an authorized new Codex session, call
 `get_cluster_status` and `list_notebooks`, then plan one notebook upload with
 `apply=false`; record only sanitized results.
