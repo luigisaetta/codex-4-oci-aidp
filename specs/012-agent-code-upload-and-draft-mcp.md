@@ -356,6 +356,23 @@ describing the blocker in "Verification evidence".
 * Local verification after the fix: `black --check .` was clean, the
   configured Pylint command scored 10.00/10, and `pytest -q` passed 255 tests.
 
+2026-09-27, manual verification step 2 (apply):
+
+* The authorized `apply=true` upload to `/Workspace/hello_world_api` uploaded
+  `hello_agent.py`. Live verification confirmed that the remote object has
+  type `FILE` and bytes identical to the local file.
+* Post-upload read-back verification then failed with `Workspace file read
+  returned a non-binary response`. The OCI SDK stream response exposes raw
+  bytes through its `.content` attribute rather than a `.read()` method, which
+  `_raw_response_bytes` did not accept.
+* The operation stopped after that failure: `hello_agent.py` is uploaded and
+  `requirements.txt` is not uploaded. This is partial remote state, not a
+  completed upload.
+* Updated `_raw_response_bytes` to accept byte-valued `.content` while
+  retaining its existing direct-bytes and `.read()` branches. An offline fake
+  response exposing only `.content` mirrors the observed SDK shape. The fix is
+  locally tested; a post-fix live upload verification remains pending.
+
 2026-09-27, execution-plan step 1:
 
 * Implemented `workspace_files.py` with a dedicated, request-scoped

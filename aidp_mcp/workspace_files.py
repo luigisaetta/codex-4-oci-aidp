@@ -216,6 +216,9 @@ def _raw_response_bytes(data):
     """Normalize an OCI raw response payload to bytes without decoding it."""
     if isinstance(data, bytes):
         return data
+    content = getattr(data, "content", None)
+    if isinstance(content, bytes):
+        return content
     if hasattr(data, "read"):
         content = data.read()
         if isinstance(content, bytes):

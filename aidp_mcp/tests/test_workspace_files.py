@@ -34,6 +34,20 @@ def test_read_workspace_file_uses_encoded_final_path_and_raw_bytes():
     assert arguments["response_type"] == "stream"
 
 
+def test_read_workspace_file_accepts_stream_response_content_bytes():
+    """Stream responses expose bytes through content rather than read()."""
+    client = SimpleNamespace(base_client=Mock())
+    client.base_client.call_api.return_value = SimpleNamespace(
+        data=SimpleNamespace(content=b"contents")
+    )
+
+    result = workspace_files.read_workspace_file(
+        client, "instance", "workspace", "/Workspace/agent/hello.py"
+    )
+
+    assert result == b"contents"
+
+
 def test_read_workspace_file_returns_none_only_for_a_missing_file():
     """A 404 is a missing file while other workspace service errors propagate."""
     client = SimpleNamespace(base_client=Mock())
