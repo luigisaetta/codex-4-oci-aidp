@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-27: Refactor internal AI DP agent MCP modules into observation,
+  invocation, code-definition, and shared lookup responsibilities without
+  changing the public MCP contract.
+
 * 2026-09-27: Add plan-by-default MCP tools to safely upload allowed local
   agent code and reconcile a compute-free CODE agent definition without
   deployment.

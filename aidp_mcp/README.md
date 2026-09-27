@@ -69,17 +69,20 @@ file.
 ### Code layout
 
 `server.py` is the MCP adapter: it loads validated settings for each tool
-request and calls the Python domain API directly. `agents.py`, `notebooks.py`,
-`jobs.py`, `clusters.py`, and `volumes.py` are those domain modules; each
-receives validated settings explicitly. `agents.py` performs agent observation,
-guarded code upload and CODE-definition reconciliation, and confirmation-gated
-OCI-signed deployment invocation. `workspace_files.py` supplies shared
-workspace object reads, file uploads, and folder creation to agents and
-notebooks. `config.py`, `local_files.py`, `targets.py`, `lookups.py`,
-`validation.py`, and `safety.py` are shared modules, with `safety.py`
-centralizing explicit mutation confirmation. Dependencies flow from
-`server.py` to domain modules, then shared modules, and finally `aidp_common`;
-domain modules must not depend on one another.
+request and calls the Python domain API directly. `agents.py`, `agent_code.py`,
+`agent_invoke.py`, `notebooks.py`, `jobs.py`, `clusters.py`, and `volumes.py`
+are domain modules; each receives validated settings explicitly. `agents.py`
+performs read-only agent observation, `agent_code.py` performs guarded code
+upload and CODE-definition reconciliation, and `agent_invoke.py` performs
+confirmation-gated OCI-signed deployment invocation. `agent_lookup.py`
+contains their shared exact-name lookup, deployment listing, and response
+shaping helpers. `workspace_files.py` supplies shared workspace object reads,
+file uploads, and folder creation to agents and notebooks. `config.py`,
+`local_files.py`, `targets.py`, `lookups.py`, `validation.py`, and `safety.py`
+are shared modules, with `safety.py` centralizing explicit mutation
+confirmation. Dependencies flow from `server.py` to domain modules, then
+shared modules, and finally `aidp_common`; domain modules must not depend on
+one another.
 
 ## Tools
 

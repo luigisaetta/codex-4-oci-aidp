@@ -7,7 +7,15 @@ Description: Stdio MCP server exposing scoped AI DP notebook, cluster, and volum
 
 from fastmcp import FastMCP
 
-from aidp_mcp import agents, clusters, jobs, notebooks, volumes
+from aidp_mcp import (
+    agent_code,
+    agent_invoke,
+    agents,
+    clusters,
+    jobs,
+    notebooks,
+    volumes,
+)
 from aidp_mcp.config import load_connection_settings
 
 MCP = FastMCP("aidp-mcp")
@@ -122,7 +130,7 @@ def upload_aidp_agent_code(
     and files; replacing changed remote files also requires `overwrite=true`.
     Local secret-like files and symbolic links are refused before remote work.
     """
-    return agents.upload_agent_code(
+    return agent_code.upload_agent_code(
         _settings(),
         local_dir,
         workspace_dir,
@@ -147,7 +155,7 @@ def ensure_aidp_agent(
     minimally updates only the CODE definition; it never attaches compute or
     deploys, redeploys, or changes agent guardrails, sessions, or cards.
     """
-    return agents.ensure_agent(
+    return agent_code.ensure_agent(
         _settings(),
         agent_name,
         workspace_dir,
@@ -176,7 +184,7 @@ def invoke_aidp_agent(
         "The agent name is exact and case-sensitive; the message is limited to\n"
         "20,000 characters and returned text to 100,000 characters."
     )
-    return agents.invoke_agent(
+    return agent_invoke.invoke_agent(
         _settings(),
         agent_name,
         message,

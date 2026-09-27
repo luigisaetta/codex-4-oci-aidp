@@ -405,3 +405,22 @@ describing the blocker in "Verification evidence".
 * Local documentation and snapshot verification only; no OCI AI DP operation
   was attempted. The live verification and cleanup procedure remains pending
   explicit authorization.
+
+2026-09-27, post-plan structural refactor:
+
+* Split the former 1,184-line `agents.py` without changing behavior or MCP
+  schema: `agents.py` (259 lines) contains read-only observation;
+  `agent_invoke.py` (264 lines) contains guarded endpoint invocation; and
+  `agent_code.py` (499 lines) contains upload and CODE-definition operations.
+  Shared exact-name lookup, deployment listing, and response-shaping helpers
+  are in `agent_lookup.py` (225 lines). Tests now mirror the observation,
+  invocation, and code modules, with shared offline fixtures.
+* Removed the temporary `max-module-lines` configuration increase. The MCP
+  snapshot fixture is byte-identical; the server adapter now imports the
+  relevant domains directly, and no domain module imports another domain.
+* Local automated verification only: `conda run -n codex-4-oci-aidp pytest -q`
+  passed 255 tests; `black --check .`, the configured full Pylint command
+  (10.00/10), `git diff --check`, and the byte-identical snapshot comparison
+  passed. A fresh interpreter imported all four agent modules successfully.
+  No OCI AI DP operation was attempted; this refactor does not establish any
+  new remote compatibility conclusion.
