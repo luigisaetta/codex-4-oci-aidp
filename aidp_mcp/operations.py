@@ -197,10 +197,12 @@ def validate_local_path(local_path, roots):
             every allowed root.
     """
     supplied_path = Path(local_path).expanduser()
-    if len(roots) > 1 and not supplied_path.is_absolute():
+    if not supplied_path.is_absolute() and (
+        len(roots) != 1 or roots[0] != PROJECT_ROOT
+    ):
         raise AidpError(
-            "Local notebook path must be absolute when multiple "
-            "AIDP_ALLOWED_ROOTS are configured."
+            "Local notebook path must be absolute when AIDP_ALLOWED_ROOTS "
+            "is configured."
         )
     candidate = supplied_path.resolve()
     for root in roots:
@@ -222,12 +224,13 @@ def validate_local_notebook(local_path, roots=None):
         roots: Optional canonical allowed roots; defaults to the project root.
 
     Returns:
-        tuple[Path, dict, str]: Canonical path, parsed notebook JSON, SHA-256.
+        tuple[Path, Path, dict, str]: Canonical path, matching allowed root,
+        parsed notebook JSON, and SHA-256.
 
     Raises:
         AidpError: The path is unsafe, absent, not a notebook, or invalid JSON.
     """
-    candidate, _ = validate_local_path(local_path, roots or (PROJECT_ROOT,))
+    candidate, matching_root = validate_local_path(local_path, roots or (PROJECT_ROOT,))
     if candidate.suffix != ".ipynb" or not candidate.is_file():
         raise AidpError("Local notebook must be an existing .ipynb file.")
     try:
@@ -237,7 +240,7 @@ def validate_local_notebook(local_path, roots=None):
         raise AidpError("Local notebook must contain valid UTF-8 JSON.") from exc
     if not isinstance(content, dict) or not content:
         raise AidpError("Local notebook JSON must be a nonempty object.")
-    return candidate, content, hashlib.sha256(payload).hexdigest()
+    return candidate, matching_root, content, hashlib.sha256(payload).hexdigest()
 
 
 def validate_workspace_path(workspace_path):
@@ -1072,8 +1075,9 @@ class AidpWorkflowOperations:
             AidpError: Validation or AI DP discovery/upload fails.
         """
         roots = getattr(self.settings, "allowed_roots", (PROJECT_ROOT,))
-        local_file, content, digest = validate_local_notebook(local_path, roots)
-        _, local_root = validate_local_path(local_file, roots)
+        local_file, local_root, content, digest = validate_local_notebook(
+            local_path, roots
+        )
         destination = validate_workspace_path(workspace_path)
         service_path = workspace_content_path(destination)
         with self._clients() as clients:

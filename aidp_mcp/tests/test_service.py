@@ -41,9 +41,10 @@ def test_validate_local_notebook_returns_json_and_digest(tmp_path, monkeypatch):
     notebook = tmp_path / "example.ipynb"
     notebook.write_text(json.dumps({"cells": [], "nbformat": 4}), encoding="utf-8")
 
-    path, content, digest = service.validate_local_notebook(notebook)
+    path, root, content, digest = service.validate_local_notebook(notebook)
 
     assert path == notebook
+    assert root == tmp_path
     assert content["nbformat"] == 4
     assert len(digest) == 64
 
@@ -76,9 +77,9 @@ def test_validate_local_notebook_accepts_second_configured_root(tmp_path):
     notebook.write_text('{"nbformat": 4}', encoding="utf-8")
     roots = service.allowed_local_roots(f"{first}{service.os.pathsep}{second}")
 
-    path, content, _ = service.validate_local_notebook(notebook, roots)
-    _, matching_root = service.validate_local_path(path, roots)
+    path, matching_root, content, _ = service.validate_local_notebook(notebook, roots)
 
+    assert path == notebook
     assert content == {"nbformat": 4}
     assert matching_root == second
 
@@ -96,6 +97,37 @@ def test_validate_local_notebook_rejects_ambiguous_relative_path(tmp_path, monke
 
     with pytest.raises(AidpError, match="must be absolute"):
         service.validate_local_notebook(relative_path, (server_root, extra_root))
+
+
+def test_validate_local_notebook_rejects_relative_path_with_one_external_root(
+    tmp_path, monkeypatch
+):
+    """An explicitly configured non-repository root cannot accept a relative path."""
+    repository_root = tmp_path / "server-repository"
+    external_root = tmp_path / "other-project"
+    repository_root.mkdir()
+    external_root.mkdir()
+    monkeypatch.chdir(repository_root)
+    monkeypatch.setattr(service, "PROJECT_ROOT", repository_root)
+
+    with pytest.raises(AidpError, match="must be absolute"):
+        service.validate_local_notebook("notebooks/example.ipynb", (external_root,))
+
+
+def test_validate_local_notebook_accepts_relative_path_with_default_root(
+    tmp_path, monkeypatch
+):
+    """The default repository root preserves its documented relative-path mode."""
+    notebook = tmp_path / "notebooks" / "example.ipynb"
+    notebook.parent.mkdir()
+    notebook.write_text('{"nbformat": 4}', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(service, "PROJECT_ROOT", tmp_path)
+
+    path, root, _, _ = service.validate_local_notebook("notebooks/example.ipynb")
+
+    assert path == notebook
+    assert root == tmp_path
 
 
 def test_validate_local_path_rejects_symlink_that_escapes_allowed_root(tmp_path):
@@ -343,6 +375,32 @@ def test_upload_plan_uses_matching_extra_root_without_remote_write(
     }
     assert len(result["sha256"]) == 64
     assert request.call_args.kwargs["method"] == "GET"
+
+
+def test_upload_notebook_validates_the_local_path_once(tmp_path, monkeypatch):
+    """Upload reuses the matching root returned by notebook validation."""
+    root = tmp_path / "allowed"
+    root.mkdir()
+    notebook = root / "example.ipynb"
+    notebook.write_text('{"nbformat": 4}', encoding="utf-8")
+    workflow_service = service.AidpWorkflowOperations(
+        settings=SimpleNamespace(allowed_roots=(root,))
+    )
+    original = service.validate_local_path
+    path_validation = Mock(wraps=original)
+    missing = oci.exceptions.ServiceError(404, "NotFound", {}, "missing")
+
+    @contextmanager
+    def clients():
+        yield "instance", "workspace", Mock(), Mock(), Mock()
+
+    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(service, "validate_local_path", path_validation)
+    monkeypatch.setattr(service, "notebook_content_request", Mock(side_effect=missing))
+
+    workflow_service.upload_notebook(notebook, "plans/example.ipynb", apply=False)
+
+    assert path_validation.call_count == 1
 
 
 def test_mcp_session_survives_a_configuration_error(monkeypatch):

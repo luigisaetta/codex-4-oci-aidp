@@ -1,6 +1,6 @@
 [
   {
-    "description": "Plan or upload a local notebook from an allowed root to AI DP.\n\n`workspace_path` is relative to the selected workspace root. `apply=false`\nis read-only. `apply=true` creates or replaces content only when\noverwrite is explicitly true for an existing notebook. When more than one\n`AIDP_ALLOWED_ROOTS` directory is configured, `local_path` must be\nabsolute so the server does not resolve it against its own repository.",
+    "description": "Plan or upload a local notebook from an allowed root to AI DP.\n\n`workspace_path` is relative to the selected workspace root. `apply=false`\nis read-only. `apply=true` creates or replaces content only when\noverwrite is explicitly true for an existing notebook. `local_path` may\nbe relative only with the default repository upload root; otherwise it\nmust be absolute so the server does not resolve it against its own\nrepository.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

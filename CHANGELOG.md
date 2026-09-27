@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* 2026-09-27: Avoid duplicate notebook local-path validation and clarify that
+  relative upload paths work only with the default repository root.
+
 * 2026-09-27: Refactor the AI DP MCP service behind a small domain facade and
   add a checked MCP tool-contract snapshot.
 

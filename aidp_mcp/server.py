@@ -25,9 +25,10 @@ def upload_notebook(
 
     `workspace_path` is relative to the selected workspace root. `apply=false`
     is read-only. `apply=true` creates or replaces content only when
-    overwrite is explicitly true for an existing notebook. When more than one
-    `AIDP_ALLOWED_ROOTS` directory is configured, `local_path` must be
-    absolute so the server does not resolve it against its own repository.
+    overwrite is explicitly true for an existing notebook. `local_path` may
+    be relative only with the default repository upload root; otherwise it
+    must be absolute so the server does not resolve it against its own
+    repository.
     """
     return _service().upload_notebook(local_path, workspace_path, overwrite, apply)
 

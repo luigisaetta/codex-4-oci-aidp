@@ -233,4 +233,38 @@ read-only tools `get_cluster_status` and `list_notebooks`, and plan (with
 
 ## Verification evidence
 
-Pending implementation.
+Implemented locally on 2026-09-27 in the `codex-4-oci-aidp` Conda
+environment (Python 3.11.0), with the repository fixture blocking network
+access during tests.
+
+Refactor commit evidence:
+
+* The MCP tool fixture was generated before the refactor through an in-memory
+  FastMCP client and committed at `aidp_mcp/tests/fixtures/mcp_tools.json`.
+  It remained byte-identical for the refactor commit.
+* The facade is `aidp_mcp.service.AidpWorkflowService`; the domain entry
+  points are `notebooks.py`, `jobs.py`, `clusters.py`, and `volumes.py`.
+  The snapshot and fresh-interpreter import tests cover the public server
+  contract and import graph. `pytest --collect-only -q aidp_mcp` collected
+  110 tests after the refactor (the prior 101 cases remain in
+  `test_service.py`, with safety tests added in `test_safety.py`).
+* Black completed with no pending changes, Pylint scored 10.00/10 for the
+  documented paths, the full offline suite passed (193 tests), and
+  `git diff --check` was clean.
+
+Follow-up commit evidence:
+
+* `validate_local_notebook` now returns its matching root; the upload spy
+  test verifies a single local path validation.
+* Tests cover rejection of a relative path with one external root and
+  preservation of relative paths for the default repository root. The MCP
+  snapshot changed only for the documented `upload_notebook` path rule.
+* `pytest --collect-only -q aidp_mcp` collected 114 tests. Black completed
+  with no pending changes, Pylint scored 10.00/10, the full offline suite
+  passed (197 tests), and `git diff --check` was clean.
+* From `/private/tmp`, a non-interactive FastMCP client launched the installed
+  `aidp-mcp` executable and listed all 12 tools.
+
+Remote verification: pending. In an authorized new Codex session, call
+`get_cluster_status` and `list_notebooks`, then plan one notebook upload with
+`apply=false`; record only sanitized results.
