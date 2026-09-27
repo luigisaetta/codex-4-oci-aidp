@@ -335,6 +335,17 @@ collected 113 tests; the full suite passed 196 tests, Black was clean, Pylint
 scored 10.00/10, `git diff --check` was clean, and the MCP snapshot was
 unchanged.
 
+Micro-step 2c — targets (commit `Extract MCP target discovery`, 2026-09-27):
+moved target identifiers, the process cache, target discovery, and target
+resolution to `targets.py` (163 lines); client context managers remain in
+`service.py`. Cache, discovery, and resolution tests moved to
+`test_targets.py`, whose autouse fixture calls `targets.clear_target_cache`.
+Patches now target `targets._discover_instances`, `targets.list_instances`,
+and `targets.find_workspace` where those names are resolved. `service.py` is
+1,595 lines. The MCP suite collected 113 tests; the full suite passed 196
+tests, Black was clean, Pylint scored 10.00/10, `git diff --check` was clean,
+and the MCP snapshot was unchanged.
+
 Remote verification: pending. In an authorized new Codex session, call
 `get_cluster_status` and `list_notebooks`, then plan one notebook upload with
 `apply=false`; record only sanitized results.
