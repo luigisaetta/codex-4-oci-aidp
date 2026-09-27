@@ -8,6 +8,7 @@ Description: Shared safe workspace folder and binary file operations.
 import oci
 
 from aidp_common.connection import AidpError
+from aidp_mcp.lookups import SDK_PAGE_SIZE, next_page
 from aidp_mcp.validation import encoded_content_path, validate_workspace_directory
 
 
@@ -146,6 +147,59 @@ def upload_workspace_file(client, instance_id, workspace_key, path, data, *, ove
     )
     if response.status not in (200, 201):
         raise AidpError(f"Workspace file upload returned HTTP {response.status}.")
+
+
+def list_workspace_objects(client, instance_id, workspace_key, path, max_results):
+    """List bounded object summaries in one validated workspace directory.
+
+    Args:
+        client: Generated workspace-object client with configured signing.
+        instance_id: Selected AI DP instance OCID.
+        workspace_key: Selected workspace key.
+        path: Absolute directory path below `/Workspace`.
+        max_results: Maximum summaries returned, from 1 through 1,000.
+
+    Returns:
+        tuple[list, bool]: Object summaries and whether more results exist.
+
+    Raises:
+        AidpError: The directory or result limit is invalid.
+    """
+    path = _validate_workspace_object_path(path)
+    if (
+        isinstance(max_results, bool)
+        or not isinstance(max_results, int)
+        or not 1 <= max_results <= 1000
+    ):
+        raise AidpError("max_results must be an integer from 1 through 1000.")
+    items = []
+    page = None
+    truncated = False
+    while len(items) < max_results:
+        try:
+            response = client.list_workspace_objects(
+                instance_id,
+                workspace_key,
+                path,
+                limit=min(SDK_PAGE_SIZE, max_results - len(items)),
+                page=page,
+            )
+        except oci.exceptions.ServiceError as exc:
+            if exc.status == 404:
+                return [], False
+            raise
+        page_items = getattr(getattr(response, "data", None), "items", None) or []
+        for index, item in enumerate(page_items):
+            items.append(item)
+            if len(items) == max_results:
+                truncated = index < len(page_items) - 1
+                break
+        next_token = next_page(response)
+        if next_token is None:
+            break
+        page = next_token
+        truncated = True
+    return items, truncated
 
 
 def _validate_workspace_object_path(path):

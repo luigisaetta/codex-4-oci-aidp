@@ -21,6 +21,12 @@ def _clients(client):
     yield "instance", "workspace", client
 
 
+@contextmanager
+def _workspace_clients(objects):
+    """Provide the workspace-object client contract for agent upload tests."""
+    yield "instance", "workspace", Mock(), Mock(), Mock(), objects
+
+
 def _agent(name="hello", key="agent-key", **values):
     """Build a representative AgentInfo SDK summary fixture."""
     defaults = {
@@ -560,3 +566,222 @@ def test_invoke_agent_timeout_does_not_retry(monkeypatch):
 
     session.post.assert_called_once()
     session.close.assert_called_once_with()
+
+
+def _agent_source(tmp_path, files):
+    """Create a safe local agent source tree from relative byte payloads."""
+    directory = tmp_path / "hello_agent"
+    for relative_path, data in files.items():
+        file_path = directory / relative_path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_bytes(data)
+    return directory
+
+
+def _upload_settings(root):
+    """Return the minimum allowed-root settings used by upload tests."""
+    return SimpleNamespace(allowed_roots=(root,))
+
+
+def test_upload_agent_code_plans_create_update_unchanged_and_remote_only(
+    tmp_path, monkeypatch
+):
+    """The default plan compares raw bytes and performs no workspace writes."""
+    directory = _agent_source(
+        tmp_path,
+        {"hello.py": b"same", "nested/new.py": b"new", "changed.py": b"local"},
+    )
+    objects = Mock()
+    remote = {
+        "/Workspace/hello/hello.py": b"same",
+        "/Workspace/hello/changed.py": b"remote",
+        "/Workspace/hello/nested/new.py": None,
+    }
+    monkeypatch.setattr(
+        agents, "workspace_clients", lambda _settings: _workspace_clients(objects)
+    )
+    monkeypatch.setattr(
+        agents,
+        "read_workspace_file",
+        lambda _client, _instance, _workspace, path: remote[path],
+    )
+    remote_item = SimpleNamespace(path="/Workspace/hello/remote.py", type="FILE")
+    monkeypatch.setattr(
+        agents,
+        "list_workspace_objects",
+        lambda *_args: ([remote_item], False),
+    )
+    create_folder = Mock()
+    upload = Mock()
+    monkeypatch.setattr(agents, "create_workspace_folder", create_folder)
+    monkeypatch.setattr(agents, "upload_workspace_file", upload)
+
+    result = agents.upload_agent_code(
+        _upload_settings(tmp_path), directory, "/Workspace/hello"
+    )
+
+    assert result == {
+        "local_root": "hello_agent",
+        "workspace_dir": "/Workspace/hello",
+        "counts": {"create": 1, "update": 1, "unchanged": 1},
+        "files": [
+            {
+                "relative_path": "changed.py",
+                "action": "update",
+                "size": 5,
+                "sha256": result["files"][0]["sha256"],
+            },
+            {
+                "relative_path": "hello.py",
+                "action": "unchanged",
+                "size": 4,
+                "sha256": result["files"][1]["sha256"],
+            },
+            {
+                "relative_path": "nested/new.py",
+                "action": "create",
+                "size": 3,
+                "sha256": result["files"][2]["sha256"],
+            },
+        ],
+        "remote_only": ["remote.py"],
+        "apply": False,
+    }
+    assert all(len(entry["sha256"]) == 12 for entry in result["files"])
+    create_folder.assert_not_called()
+    upload.assert_not_called()
+
+
+def test_upload_agent_code_rejects_updates_before_any_write(tmp_path, monkeypatch):
+    """An update without explicit overwrite cannot create folders or files."""
+    directory = _agent_source(tmp_path, {"hello.py": b"local"})
+    objects = Mock()
+    monkeypatch.setattr(
+        agents, "workspace_clients", lambda _settings: _workspace_clients(objects)
+    )
+    monkeypatch.setattr(agents, "read_workspace_file", Mock(return_value=b"remote"))
+    monkeypatch.setattr(agents, "list_workspace_objects", lambda *_args: ([], False))
+    create_folder = Mock()
+    upload = Mock()
+    monkeypatch.setattr(agents, "create_workspace_folder", create_folder)
+    monkeypatch.setattr(agents, "upload_workspace_file", upload)
+
+    with pytest.raises(AidpError, match="overwrite=true"):
+        agents.upload_agent_code(
+            _upload_settings(tmp_path), directory, "/Workspace/hello", apply=True
+        )
+
+    create_folder.assert_not_called()
+    upload.assert_not_called()
+
+
+def test_upload_agent_code_creates_parent_folders_and_verifies_files(
+    tmp_path, monkeypatch
+):
+    """Apply creates folders in order, skips unchanged files, and reads uploads back."""
+    directory = _agent_source(
+        tmp_path, {"unchanged.py": b"same", "nested/new.py": b"new"}
+    )
+    objects = Mock()
+    read_counts = {"/Workspace/hello/nested/new.py": 0}
+
+    def read(_client, _instance, _workspace, path):
+        if path.endswith("unchanged.py"):
+            return b"same"
+        read_counts[path] += 1
+        return None if read_counts[path] == 1 else b"new"
+
+    create_folder = Mock()
+    upload = Mock()
+    monkeypatch.setattr(
+        agents, "workspace_clients", lambda _settings: _workspace_clients(objects)
+    )
+    monkeypatch.setattr(agents, "read_workspace_file", read)
+    monkeypatch.setattr(agents, "list_workspace_objects", lambda *_args: ([], False))
+    monkeypatch.setattr(agents, "create_workspace_folder", create_folder)
+    monkeypatch.setattr(agents, "upload_workspace_file", upload)
+
+    result = agents.upload_agent_code(
+        _upload_settings(tmp_path), directory, "/Workspace/hello", apply=True
+    )
+
+    assert [call.args[3] for call in create_folder.call_args_list] == [
+        "/Workspace/hello",
+        "/Workspace/hello/nested",
+    ]
+    upload.assert_called_once_with(
+        objects,
+        "instance",
+        "workspace",
+        "/Workspace/hello/nested/new.py",
+        b"new",
+        overwrite=False,
+    )
+    assert result["uploaded"] == result["verified"] == 1
+
+
+def test_upload_agent_code_stops_on_readback_mismatch_and_lists_uploads(
+    tmp_path, monkeypatch
+):
+    """A mismatched read-back fails safely after reporting the uploaded file."""
+    directory = _agent_source(tmp_path, {"hello.py": b"local"})
+    objects = Mock()
+    monkeypatch.setattr(
+        agents, "workspace_clients", lambda _settings: _workspace_clients(objects)
+    )
+    monkeypatch.setattr(
+        agents, "read_workspace_file", Mock(side_effect=[None, b"wrong"])
+    )
+    monkeypatch.setattr(agents, "list_workspace_objects", lambda *_args: ([], False))
+    monkeypatch.setattr(agents, "create_workspace_folder", Mock())
+    monkeypatch.setattr(agents, "upload_workspace_file", Mock())
+
+    with pytest.raises(AidpError, match="hello.py; uploaded files: hello.py"):
+        agents.upload_agent_code(
+            _upload_settings(tmp_path), directory, "/Workspace/hello", apply=True
+        )
+
+
+def test_upload_agent_code_reports_completed_files_after_mid_upload_failure(
+    tmp_path, monkeypatch
+):
+    """A later upload failure leaves a rerunnable report of earlier uploads."""
+    directory = _agent_source(tmp_path, {"first.py": b"first", "second.py": b"second"})
+    objects = Mock()
+    read = Mock(side_effect=[None, None, b"first"])
+    upload = Mock(side_effect=[None, AidpError("upload rejected")])
+    monkeypatch.setattr(
+        agents, "workspace_clients", lambda _settings: _workspace_clients(objects)
+    )
+    monkeypatch.setattr(agents, "read_workspace_file", read)
+    monkeypatch.setattr(agents, "list_workspace_objects", lambda *_args: ([], False))
+    monkeypatch.setattr(agents, "create_workspace_folder", Mock())
+    monkeypatch.setattr(agents, "upload_workspace_file", upload)
+
+    with pytest.raises(AidpError, match="second.py; uploaded files: first.py"):
+        agents.upload_agent_code(
+            _upload_settings(tmp_path), directory, "/Workspace/hello", apply=True
+        )
+
+
+def test_upload_agent_code_reports_only_unchanged_after_a_successful_rerun(
+    tmp_path, monkeypatch
+):
+    """A fully matching apply is a no-op with explicit zero upload counters."""
+    directory = _agent_source(tmp_path, {"hello.py": b"same"})
+    objects = Mock()
+    monkeypatch.setattr(
+        agents, "workspace_clients", lambda _settings: _workspace_clients(objects)
+    )
+    monkeypatch.setattr(agents, "read_workspace_file", Mock(return_value=b"same"))
+    monkeypatch.setattr(agents, "list_workspace_objects", lambda *_args: ([], False))
+    upload = Mock()
+    monkeypatch.setattr(agents, "upload_workspace_file", upload)
+
+    result = agents.upload_agent_code(
+        _upload_settings(tmp_path), directory, "/Workspace/hello", apply=True
+    )
+
+    assert result["counts"] == {"create": 0, "update": 0, "unchanged": 1}
+    assert result["uploaded"] == result["verified"] == 0
+    upload.assert_not_called()

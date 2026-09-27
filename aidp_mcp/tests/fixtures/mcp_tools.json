@@ -170,6 +170,34 @@
     "name": "get_aidp_agent_trace"
   },
   {
+    "description": "AI DP agent code upload: plan a safe folder upload by default.\n\n`apply=false` only compares hashes. `apply=true` creates missing folders\nand files; replacing changed remote files also requires `overwrite=true`.\nLocal secret-like files and symbolic links are refused before remote work.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "local_dir": {
+          "type": "string"
+        },
+        "workspace_dir": {
+          "type": "string"
+        },
+        "overwrite": {
+          "default": false,
+          "type": "boolean"
+        },
+        "apply": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "local_dir",
+        "workspace_dir"
+      ],
+      "type": "object"
+    },
+    "name": "upload_aidp_agent_code"
+  },
+  {
     "description": "AI DP agent invoke: send one message to an exact-name deployed agent; confirmation is required.\n\nThis creates a platform session and can consume compute or trigger agent\ntools with side effects. Set `confirm_invoke=true` only when authorized.\nThe agent name is exact and case-sensitive; the message is limited to\n20,000 characters and returned text to 100,000 characters.",
     "inputSchema": {
       "additionalProperties": false,

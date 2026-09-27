@@ -359,3 +359,14 @@ describing the blocker in "Verification evidence".
   empty folders, allowed-root boundaries, and file-count, per-file, and total
   byte limits using small local fixtures.
 * No AI DP operation was attempted. The policy is locally verified only.
+
+2026-09-27, execution-plan step 3:
+
+* Implemented `upload_aidp_agent_code` as a plan-by-default MCP tool. It
+  compares local and remote SHA-256 digests, reports bounded remote-only
+  workspace files, and only creates folders or uploads files when `apply=true`.
+* Offline tests cover create, update, unchanged, remote-only, overwrite
+  refusal before writes, parent-first folders, post-upload digest verification,
+  mid-upload failure reporting, no-op reruns, and page requests capped at 100.
+* No remote upload was run. The exact production `FILE` upload headers and
+  object appearance remain pending explicit live verification.

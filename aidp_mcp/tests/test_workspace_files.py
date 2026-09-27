@@ -95,3 +95,28 @@ def test_workspace_file_operations_reject_unsafe_workspace_paths(path):
         workspace_files.read_workspace_file(client, "instance", "workspace", path)
 
     client.base_client.call_api.assert_not_called()
+
+
+def test_list_workspace_objects_paginates_with_the_shared_sdk_page_limit():
+    """Remote-only discovery never sends a workspace-object list above 100."""
+    client = Mock()
+    first = SimpleNamespace(
+        data=SimpleNamespace(items=[SimpleNamespace(path="/Workspace/a.py")]),
+        headers={"opc-next-page": "next"},
+    )
+    second = SimpleNamespace(
+        data=SimpleNamespace(items=[SimpleNamespace(path="/Workspace/b.py")]),
+        headers={},
+    )
+    client.list_workspace_objects.side_effect = [first, second]
+
+    items, truncated = workspace_files.list_workspace_objects(
+        client, "instance", "workspace", "/Workspace", 101
+    )
+
+    assert [item.path for item in items] == ["/Workspace/a.py", "/Workspace/b.py"]
+    assert truncated is True
+    assert all(
+        call.kwargs["limit"] <= 100
+        for call in client.list_workspace_objects.call_args_list
+    )

@@ -109,6 +109,29 @@ def get_aidp_agent_trace(
 
 
 @MCP.tool()
+def upload_aidp_agent_code(
+    local_dir: str,
+    workspace_dir: str,
+    *,
+    overwrite: bool = False,
+    apply: bool = False,
+) -> dict:
+    """AI DP agent code upload: plan a safe folder upload by default.
+
+    `apply=false` only compares hashes. `apply=true` creates missing folders
+    and files; replacing changed remote files also requires `overwrite=true`.
+    Local secret-like files and symbolic links are refused before remote work.
+    """
+    return agents.upload_agent_code(
+        _settings(),
+        local_dir,
+        workspace_dir,
+        overwrite=overwrite,
+        apply=apply,
+    )
+
+
+@MCP.tool()
 def invoke_aidp_agent(
     agent_name: str,
     message: str,
