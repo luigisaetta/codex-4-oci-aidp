@@ -46,3 +46,5 @@ max-args = 10
 max-locals = 25
 max-branches = 18
 max-statements = 70
+# One cohesive agent domain module contains read, guarded invoke, upload, and definition operations.
+max-module-lines = 1200

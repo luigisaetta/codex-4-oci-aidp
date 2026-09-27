@@ -198,6 +198,56 @@
     "name": "upload_aidp_agent_code"
   },
   {
+    "description": "AI DP agent definition: plan a CODE agent without deployment by default.\n\nThe file paths are relative to `workspace_dir`. `apply=true` creates or\nminimally updates only the CODE definition; it never attaches compute or\ndeploys, redeploys, or changes agent guardrails, sessions, or cards.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_name": {
+          "type": "string"
+        },
+        "workspace_dir": {
+          "type": "string"
+        },
+        "entry_file": {
+          "type": "string"
+        },
+        "dependencies_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "apply": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent_name",
+        "workspace_dir",
+        "entry_file"
+      ],
+      "type": "object"
+    },
+    "name": "ensure_aidp_agent"
+  },
+  {
     "description": "AI DP agent invoke: send one message to an exact-name deployed agent; confirmation is required.\n\nThis creates a platform session and can consume compute or trigger agent\ntools with side effects. Set `confirm_invoke=true` only when authorized.\nThe agent name is exact and case-sensitive; the message is limited to\n20,000 characters and returned text to 100,000 characters.",
     "inputSchema": {
       "additionalProperties": false,

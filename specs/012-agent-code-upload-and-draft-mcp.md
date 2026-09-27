@@ -370,3 +370,24 @@ describing the blocker in "Verification evidence".
   mid-upload failure reporting, no-op reruns, and page requests capped at 100.
 * No remote upload was run. The exact production `FILE` upload headers and
   object appearance remain pending explicit live verification.
+
+2026-09-27, execution-plan step 4:
+
+* Implemented MCP tool `ensure_aidp_agent` and its `agents.ensure_agent`
+  operation. It verifies the referenced workspace files before planning;
+  creates only a CODE definition with `path_info=/Workspace` and no compute;
+  and minimally updates only entry path, dependency path, and an explicitly
+  supplied description. Existing non-CODE agents are refused. The plan reports
+  current and desired fields, lifecycle state, deployment mode, and the
+  redeploy limitation for deployed agents.
+* Offline acceptance tests use mocked `aidp-python-client` 4.2.1 clients and
+  workspace object reads. They cover exact creation fields without compute,
+  unchanged plans, ETag-protected minimal updates, canvas refusal, missing
+  remote files before agent lookup, the deployed-agent redeploy note, and the
+  MCP schema snapshot. `conda run -n codex-4-oci-aidp pytest -q` passed 255
+  tests; `black --check .`, the configured full Pylint command (10.00/10), and
+  `git diff --check` passed locally.
+* This is local mocked verification only; no `apply=true` call, agent create,
+  or agent update was made on OCI AI DP. Live confirmation of the service's
+  `create_agent` and `update_agent` behavior, including ETag handling, remains
+  pending the explicit verification procedure above.

@@ -785,3 +785,154 @@ def test_upload_agent_code_reports_only_unchanged_after_a_successful_rerun(
     assert result["counts"] == {"create": 0, "update": 0, "unchanged": 1}
     assert result["uploaded"] == result["verified"] == 0
     upload.assert_not_called()
+
+
+def _definition_contexts(monkeypatch, objects, client):
+    """Install independent workspace-file and agent-definition client contexts."""
+    monkeypatch.setattr(
+        agents, "workspace_clients", lambda _settings: _workspace_clients(objects)
+    )
+    monkeypatch.setattr(agents, "agent_clients", lambda _settings: _clients(client))
+
+
+def test_ensure_agent_plans_and_creates_exact_code_definition(monkeypatch):
+    """Creation uses only documented CODE fields and never sets compute metadata."""
+    objects = Mock()
+    client = Mock()
+    client.list_agents.return_value = _response([])
+    _definition_contexts(monkeypatch, objects, client)
+    monkeypatch.setattr(agents, "read_workspace_file", Mock(return_value=b"source"))
+    refreshed = {"name": "hello", "type": "CODE"}
+    monkeypatch.setattr(agents, "get_agent", Mock(return_value=refreshed))
+
+    result = agents.ensure_agent(
+        SimpleNamespace(),
+        "hello",
+        "/Workspace/hello",
+        "hello.py",
+        dependencies_file="requirements.txt",
+        description="A hello agent",
+        apply=True,
+    )
+
+    assert result == refreshed
+    created = client.create_agent.call_args.args[2]
+    assert created.display_name == "hello"
+    assert created.type == "CODE"
+    assert created.path_info == "/Workspace"
+    assert created.entry_file_path == "/Workspace/hello/hello.py"
+    assert created.dependencies_file_path == "/Workspace/hello/requirements.txt"
+    assert created.description == "A hello agent"
+    assert created.compute_key is None
+
+
+def test_ensure_agent_plan_is_unchanged_without_description_override(monkeypatch):
+    """An omitted description preserves the existing CODE agent description."""
+    objects = Mock()
+    detail = _agent(
+        entry_file_path="/Workspace/hello/hello.py",
+        dependencies_file_path="/Workspace/hello/requirements.txt",
+        description="Existing description",
+        deployment_mode="NOT_DEPLOYED",
+    )
+    client = Mock()
+    client.list_agents.return_value = _response([detail])
+    client.get_agent.return_value = SimpleNamespace(data=detail, headers={})
+    _definition_contexts(monkeypatch, objects, client)
+    monkeypatch.setattr(agents, "read_workspace_file", Mock(return_value=b"source"))
+
+    result = agents.ensure_agent(
+        SimpleNamespace(),
+        "hello",
+        "/Workspace/hello",
+        "hello.py",
+        dependencies_file="requirements.txt",
+    )
+
+    assert result["action"] == "unchanged"
+    assert result["desired"]["description"] == "Existing description"
+    client.create_agent.assert_not_called()
+    client.update_agent.assert_not_called()
+
+
+def test_ensure_agent_updates_only_changed_fields_with_etag(monkeypatch):
+    """A CODE update sends only intended changed fields and optimistic ETag."""
+    objects = Mock()
+    detail = _agent(
+        entry_file_path="/Workspace/hello/old.py",
+        dependencies_file_path="/Workspace/hello/requirements.txt",
+        description="Old description",
+    )
+    client = Mock()
+    client.list_agents.return_value = _response([detail])
+    client.get_agent.return_value = SimpleNamespace(
+        data=detail, headers={"etag": "etag"}
+    )
+    _definition_contexts(monkeypatch, objects, client)
+    monkeypatch.setattr(agents, "read_workspace_file", Mock(return_value=b"source"))
+    refreshed = {"name": "hello", "entry_file_path": "/Workspace/hello/new.py"}
+    monkeypatch.setattr(agents, "get_agent", Mock(return_value=refreshed))
+
+    result = agents.ensure_agent(
+        SimpleNamespace(),
+        "hello",
+        "/Workspace/hello",
+        "new.py",
+        dependencies_file="requirements.txt",
+        description="New description",
+        apply=True,
+    )
+
+    assert result == refreshed
+    updated = client.update_agent.call_args.args[3]
+    assert updated.entry_file_path == "/Workspace/hello/new.py"
+    assert updated.description == "New description"
+    assert updated.dependencies_file_path is None
+    assert client.update_agent.call_args.kwargs == {"if_match": "etag"}
+
+
+def test_ensure_agent_refuses_canvas_agents_and_missing_workspace_files(monkeypatch):
+    """Canvas agents are preserved and missing source files stop before agent reads."""
+    objects = Mock()
+    canvas = _agent(type="CANVAS")
+    client = Mock()
+    client.list_agents.return_value = _response([canvas])
+    client.get_agent.return_value = SimpleNamespace(data=canvas, headers={})
+    _definition_contexts(monkeypatch, objects, client)
+    monkeypatch.setattr(agents, "read_workspace_file", Mock(return_value=b"source"))
+
+    with pytest.raises(AidpError, match="not CODE"):
+        agents.ensure_agent(SimpleNamespace(), "hello", "/Workspace/hello", "hello.py")
+
+    client.create_agent.assert_not_called()
+    client.update_agent.assert_not_called()
+
+    missing_client = Mock()
+    _definition_contexts(monkeypatch, objects, missing_client)
+    monkeypatch.setattr(agents, "read_workspace_file", Mock(return_value=None))
+    with pytest.raises(AidpError, match="entry_file does not exist"):
+        agents.ensure_agent(SimpleNamespace(), "hello", "/Workspace/hello", "hello.py")
+    missing_client.list_agents.assert_not_called()
+
+
+def test_ensure_agent_plan_notes_redeploy_for_a_deployed_code_agent(monkeypatch):
+    """A deployed CODE agent plan warns that this tool never redeploys it."""
+    objects = Mock()
+    detail = _agent(
+        entry_file_path="/Workspace/hello/old.py",
+        dependencies_file_path=None,
+        description=None,
+        deployment_mode="MANUAL",
+    )
+    client = Mock()
+    client.list_agents.return_value = _response([detail])
+    client.get_agent.return_value = SimpleNamespace(data=detail, headers={})
+    _definition_contexts(monkeypatch, objects, client)
+    monkeypatch.setattr(agents, "read_workspace_file", Mock(return_value=b"source"))
+
+    result = agents.ensure_agent(
+        SimpleNamespace(), "hello", "/Workspace/hello", "new.py"
+    )
+
+    assert result["action"] == "update"
+    assert "redeploy" in result["redeploy_note"]

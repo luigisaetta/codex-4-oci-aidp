@@ -11,6 +11,7 @@ from pathlib import PurePosixPath
 from urllib.parse import urlparse
 
 import requests
+from aidp_python_client.aidataplatform_dp import models
 
 from aidp_common.connection import AidpError, load_auth, validate_resource_key
 from aidp_mcp.local_files import (
@@ -416,6 +417,231 @@ def upload_agent_code(
     return _with_upload_counts(result, apply, uploaded, verified)
 
 
+def ensure_agent(
+    settings,
+    agent_name,
+    workspace_dir,
+    entry_file,
+    *,
+    dependencies_file=None,
+    description=None,
+    apply=False,
+):
+    """Plan or reconcile one CODE agent definition without deployment.
+
+    This AI DP agent definition operation is plan-only by default. It only
+    creates or updates CODE agent file paths and an optional description; it
+    never attaches compute or deploys the agent.
+
+    Args:
+        settings: Validated MCP connection settings.
+        agent_name: Exact, case-sensitive agent display name.
+        workspace_dir: Absolute workspace directory containing agent files.
+        entry_file: Entry file path relative to ``workspace_dir``.
+        dependencies_file: Optional dependency-file path relative to the folder.
+        description: Optional replacement description.
+        apply: Submit a planned create or minimal update.
+
+    Returns:
+        dict: A plan with current and desired fields, or refreshed agent data.
+
+    Raises:
+        AidpError: Validation, remote-file, agent selection, or update fails.
+    """
+    if apply is not True and apply is not False:
+        raise AidpError("apply must be a boolean.")
+    agent_name = validate_resource_name(agent_name, "Agent")
+    workspace_dir = validate_workspace_directory(workspace_dir)
+    entry_path = _agent_workspace_file_path(workspace_dir, entry_file, "entry_file")
+    dependencies_path = (
+        _agent_workspace_file_path(
+            workspace_dir, dependencies_file, "dependencies_file"
+        )
+        if dependencies_file is not None
+        else None
+    )
+    if description is not None and not isinstance(description, str):
+        raise AidpError("description must be a string or null.")
+    _require_agent_source_files(settings, entry_path, dependencies_path)
+    with agent_clients(settings) as clients:
+        instance_id, workspace_key, client = clients
+        matches = _find_agent_matches(client, instance_id, workspace_key, agent_name)
+        plan, detail, etag = _agent_definition_plan(
+            client,
+            instance_id,
+            workspace_key,
+            matches,
+            agent_name=agent_name,
+            entry_path=entry_path,
+            dependencies_path=dependencies_path,
+            description=description,
+        )
+        if not should_apply(apply, plan["action"]):
+            return plan
+        _apply_agent_definition(
+            client,
+            instance_id,
+            workspace_key,
+            plan,
+            detail=detail,
+            etag=etag,
+        )
+    return get_agent(settings, agent_name)
+
+
+def _agent_workspace_file_path(workspace_dir, relative_path, field_name):
+    """Build one safe absolute agent file path from a relative folder path."""
+    if not isinstance(relative_path, str) or not relative_path.strip():
+        raise AidpError(f"{field_name} must be a nonempty relative file path.")
+    relative = PurePosixPath(relative_path)
+    if (
+        relative.is_absolute()
+        or relative == PurePosixPath(".")
+        or any(part in (".", "..") for part in relative.parts)
+        or any(
+            ord(character) < 32 or ord(character) == 127 for character in relative_path
+        )
+    ):
+        raise AidpError(f"{field_name} must be a safe relative file path.")
+    return str(PurePosixPath(workspace_dir) / relative)
+
+
+def _require_agent_source_files(settings, entry_path, dependencies_path):
+    """Read required source files before planning a definition mutation."""
+    with workspace_clients(settings) as clients:
+        instance_id, workspace_key, _, _, _, objects = clients
+        for label, path in (
+            ("entry_file", entry_path),
+            ("dependencies_file", dependencies_path),
+        ):
+            if (
+                path is not None
+                and read_workspace_file(objects, instance_id, workspace_key, path)
+                is None
+            ):
+                raise AidpError(f"{label} does not exist in the workspace: {path}.")
+
+
+def _agent_definition_plan(
+    client,
+    instance_id,
+    workspace_key,
+    matches,
+    *,
+    agent_name,
+    entry_path,
+    dependencies_path,
+    description,
+):
+    """Build a CODE-only definition plan from zero or one exact agent match."""
+    if len(matches) > 1:
+        raise AidpError(
+            f"Agent name {agent_name!r} has {len(matches)} visible exact matches."
+        )
+    desired = {
+        "entry_file_path": entry_path,
+        "dependencies_file_path": dependencies_path,
+        "description": description,
+    }
+    if not matches:
+        return _new_agent_definition_plan(agent_name, desired), None, None
+    response = client.get_agent(
+        instance_id, workspace_key, resource_key(matches[0], "Agent")
+    )
+    detail = response.data
+    if getattr(detail, "type", None) != "CODE":
+        raise AidpError("Existing agent is not CODE and will not be converted.")
+    current = _agent_definition_fields(detail)
+    if description is None:
+        desired["description"] = current["description"]
+    changes = {
+        field: value for field, value in desired.items() if current[field] != value
+    }
+    action = "update" if changes else "unchanged"
+    return (
+        _existing_agent_definition_plan(
+            detail, current, desired, action, changes=changes
+        ),
+        detail,
+        getattr(response, "headers", {}).get("etag"),
+    )
+
+
+def _new_agent_definition_plan(agent_name, desired):
+    """Return the public creation plan without an existing agent payload."""
+    return {
+        "action": "create",
+        "agent_name": agent_name,
+        "current": {
+            "entry_file_path": None,
+            "dependencies_file_path": None,
+            "description": None,
+        },
+        "desired": desired,
+        "lifecycle_state": None,
+        "deployment_mode": None,
+        "redeploy_note": None,
+    }
+
+
+def _existing_agent_definition_plan(detail, current, desired, action, *, changes):
+    """Return the public plan for a verified existing CODE agent."""
+    deployment_mode = getattr(detail, "deployment_mode", None)
+    return {
+        "action": action,
+        "agent_name": getattr(detail, "display_name", None),
+        "current": current,
+        "desired": desired,
+        "changed_fields": sorted(changes),
+        "lifecycle_state": getattr(detail, "lifecycle_state", None),
+        "deployment_mode": deployment_mode,
+        "redeploy_note": (
+            "Changes take effect only after a redeploy, which this tool does "
+            "not perform."
+            if deployment_mode != "NOT_DEPLOYED"
+            else None
+        ),
+    }
+
+
+def _agent_definition_fields(agent):
+    """Return exactly the fields that this definition tool may manage."""
+    return {
+        "entry_file_path": getattr(agent, "entry_file_path", None),
+        "dependencies_file_path": getattr(agent, "dependencies_file_path", None),
+        "description": getattr(agent, "description", None),
+    }
+
+
+def _apply_agent_definition(client, instance_id, workspace_key, plan, *, detail, etag):
+    """Create or minimally update a CODE agent using the already-built plan."""
+    if plan["action"] == "create":
+        desired = plan["desired"]
+        client.create_agent(
+            instance_id,
+            workspace_key,
+            models.CreateAgentDetails(
+                display_name=plan["agent_name"],
+                type="CODE",
+                path_info="/Workspace",
+                entry_file_path=desired["entry_file_path"],
+                dependencies_file_path=desired["dependencies_file_path"],
+                description=desired["description"],
+            ),
+        )
+        return
+    if plan["action"] == "update":
+        changes = {field: plan["desired"][field] for field in plan["changed_fields"]}
+        request_kwargs = {"if_match": etag} if etag else {}
+        client.update_agent(
+            instance_id,
+            workspace_key,
+            resource_key(detail, "Agent"),
+            models.UpdateAgentDetails(**changes),
+            **request_kwargs,
+        )
+
+
 def _local_agent_upload_entries(directory, workspace_dir, local_files):
     """Read local files and construct private planning records in sorted order."""
     entries = []
@@ -605,6 +831,16 @@ def _apply_agent_upload(objects, instance_id, workspace_key, entries):
 
 def _find_agent(client, instance_id, workspace_key, agent_name):
     """Resolve exactly one agent display name without trusting server filtering."""
+    matches = _find_agent_matches(client, instance_id, workspace_key, agent_name)
+    if len(matches) != 1:
+        raise AidpError(
+            f"Agent name {agent_name!r} has {len(matches)} visible exact matches."
+        )
+    return matches[0]
+
+
+def _find_agent_matches(client, instance_id, workspace_key, agent_name):
+    """Return at most two exact-name matches for an agent selection decision."""
     matches = []
     page = None
     while len(matches) < 2:
@@ -623,11 +859,7 @@ def _find_agent(client, instance_id, workspace_key, agent_name):
         page = next_page(response)
         if not page:
             break
-    if len(matches) != 1:
-        raise AidpError(
-            f"Agent name {agent_name!r} has {len(matches)} visible exact matches."
-        )
-    return matches[0]
+    return matches
 
 
 def _list_deployments(client, instance_id, workspace_key, agent_key):

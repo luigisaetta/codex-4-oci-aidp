@@ -97,7 +97,7 @@ def test_mcp_workbench_clients_preserve_numeric_timestamps(monkeypatch):
     ] == [None, None]
 
 
-def test_server_registers_the_nineteen_scoped_tools():
+def test_server_registers_the_twenty_scoped_tools():
     """The MCP schema exposes the specified tools without cloud access."""
     names = {tool.name for tool in asyncio.run(MCP.list_tools())}
 
@@ -110,6 +110,7 @@ def test_server_registers_the_nineteen_scoped_tools():
         "get_aidp_agent_session_messages",
         "get_aidp_agent_trace",
         "upload_aidp_agent_code",
+        "ensure_aidp_agent",
         "invoke_aidp_agent",
         "find_notebook_jobs",
         "list_catalog_volumes",

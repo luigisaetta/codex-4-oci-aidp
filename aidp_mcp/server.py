@@ -132,6 +132,33 @@ def upload_aidp_agent_code(
 
 
 @MCP.tool()
+def ensure_aidp_agent(
+    agent_name: str,
+    workspace_dir: str,
+    entry_file: str,
+    *,
+    dependencies_file: str | None = None,
+    description: str | None = None,
+    apply: bool = False,
+) -> dict:
+    """AI DP agent definition: plan a CODE agent without deployment by default.
+
+    The file paths are relative to `workspace_dir`. `apply=true` creates or
+    minimally updates only the CODE definition; it never attaches compute or
+    deploys, redeploys, or changes agent guardrails, sessions, or cards.
+    """
+    return agents.ensure_agent(
+        _settings(),
+        agent_name,
+        workspace_dir,
+        entry_file,
+        dependencies_file=dependencies_file,
+        description=description,
+        apply=apply,
+    )
+
+
+@MCP.tool()
 def invoke_aidp_agent(
     agent_name: str,
     message: str,
