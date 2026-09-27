@@ -30,6 +30,18 @@ def _resource_key(resource, label):
     return value
 
 
+def next_page(response):
+    """Return the optional OCI pagination token from one SDK response.
+
+    Args:
+        response: OCI SDK response whose headers may contain a next-page token.
+
+    Returns:
+        str | None: The next-page token, if supplied by OCI.
+    """
+    return (getattr(response, "headers", None) or {}).get("opc-next-page")
+
+
 def find_workspace(workspaces, instance_id, workspace_name):
     """Resolve one exact workspace name within an AI DP instance.
 

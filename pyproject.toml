@@ -44,7 +44,3 @@ max-args = 10
 max-locals = 25
 max-branches = 18
 max-statements = 70
-max-module-lines = 2200
-
-[tool.pylint.similarities]
-min-similarity-lines = 999

@@ -70,40 +70,33 @@ the responsibilities and dependency rules if names are adjusted.
 | `jobs.py` | Workflow jobs and runs | `find_notebook_jobs`, `list_job_runs`, `ensure_notebook_job`, `start_notebook_job`, run polling, `get_job_run`, `get_job_run_output`, `_find_job`, `_managed_task`, `_is_supported_job`, `_matching_notebook_tasks`, run and output response helpers, `TERMINAL_JOB_STATES` |
 | `clusters.py` | Cluster status and lifecycle | `get_cluster_status`, `set_cluster_state`, lifecycle polling, `_cluster_transition_states`, `_submit_cluster_action`, cluster, shape, and worker response helpers |
 | `volumes.py` | Catalog volumes and volume-file trees | `list_catalog_volumes`, `list_volume_files`, exact catalog/schema/volume lookups, volume summaries, tree construction and traversal |
-| `service.py` | Facade used by `server.py` | `AidpWorkflowService` only |
 
 Keep bounds constants (`MAX_*`) in the module that uses them. A constant used
 by several modules goes in `validation.py`.
 
 ### Dependency rules
 
-* **Direction:** `server.py` → `service.py` → domain modules (`notebooks`,
-  `jobs`, `clusters`, `volumes`) → shared modules (`targets`, `lookups`,
-  `validation`, `local_files`, `safety`, `config`) → `aidp_common`.
+* **Direction:** `server.py` → domain modules (`notebooks`, `jobs`,
+  `clusters`, `volumes`) → shared modules (`targets`, `lookups`, `validation`,
+  `local_files`, `safety`, `config`) → `aidp_common`.
 * **Domain modules must not import each other.** Put anything two domains need
   in a shared module. This matches the existing repository rule that feature
   modules do not import each other.
-* **No reverse dependencies:** shared modules never import domain modules,
-  `service.py`, or `server.py`.
+* **No reverse dependencies:** shared modules never import domain modules or
+  `server.py`.
 * **No circular imports.** Add a small offline test that imports every module
   in a fresh interpreter, for example with `importlib` in a subprocess, so a
   cycle fails the suite.
 
-### Facade
+### Server adapter decision
 
-* `aidp_mcp.service.AidpWorkflowService` keeps its constructor
-  (`settings=None`, loading settings lazily as today) and every public method
-  with its current signature, defaults, docstring, return value, and raised
-  exceptions.
-* Each public method delegates to one domain-module function that receives the
-  validated settings explicitly, for example
-  `notebooks.upload_notebook(self.settings, local_path, ...)`.
-* `server.py` keeps importing only `AidpWorkflowService` and needs no change
-  beyond, at most, the module header date.
-* **Do not re-export internal helpers from `service.py`.** Tests that patch
-  `service.<helper>` must fail loudly (`AttributeError` from `monkeypatch`)
-  until they patch the module that actually uses the helper. This prevents
-  stale patches that silently stop taking effect.
+The original facade was removed in the final cleanup because it duplicated
+`server.py` without providing an independent Python API boundary. `server.py`
+loads connection settings lazily for every request and calls one domain
+function directly. It preserves all tool names, parameters, defaults,
+docstrings, outputs, and recoverable `AidpError` behavior. Tests patch the
+domain or adapter name where it is resolved; no code or test re-exports or
+patches a `service` module.
 
 ### Plan-and-confirm helper (`safety.py`)
 
@@ -264,8 +257,7 @@ Offline, with network blocked as today:
   where it now lives.
 * The full pytest suite passes after the refactor commit and again after the
   follow-up commit.
-* The fresh-interpreter import test passes. `service.py` defines only
-  `AidpWorkflowService` and imports.
+* The fresh-interpreter import test passes for every `aidp_mcp` module.
 * No domain module imports another domain module. Verify with a small test or
   a `grep` recorded in the evidence section.
 * Each module is below about 600 lines. If one exceeds that, record why.
@@ -400,6 +392,23 @@ method delegating to a domain module. The related tests moved to
 the full suite passed 196 tests, Black was clean, Pylint scored 10.00/10,
 `git diff --check` was clean, and the MCP snapshot was unchanged. Manual local
 MCP verification confirmed that the expected 12 tools remain registered.
+
+Step 7 — cleanup (commit `Remove MCP service facade`, 2026-09-27): removed
+`service.py` because it duplicated the server adapter. `server.py` (202 lines)
+now lazily loads validated settings for each request and calls domain functions
+directly; `notebooks.py` (335), `jobs.py` (518), `clusters.py` (260),
+`volumes.py` (409), `lookups.py` (173), `targets.py` (274), `validation.py`
+(161), `local_files.py` (108), `config.py` (63), and `safety.py` (38) remain
+below 600 lines. `test_service.py` was replaced by `test_server.py`, which
+covers adapter error recovery, the unchanged tool contract, and fresh-process
+imports of every package module. The duplicate MCP session-recovery test was
+kept once there. Removed Pylint's module-length and similarity suppressions;
+`lookups.next_page` now centralizes OCI page-token extraction. The MCP suite
+collected 112 tests and the full suite passed 195 tests; Black was clean,
+Pylint scored 10.00/10, `git diff --check` was clean, and the fixture was
+unchanged. The installed `aidp-mcp` executable, launched from `/private/tmp`
+by a non-interactive FastMCP client, listed all 12 tools. Remote verification
+remains pending.
 
 Remote verification: pending. In an authorized new Codex session, call
 `get_cluster_status` and `list_notebooks`, then plan one notebook upload with

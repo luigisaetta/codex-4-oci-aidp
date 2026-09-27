@@ -67,13 +67,16 @@ file.
 
 ### Code layout
 
-`service.py` is the small facade used by `server.py`. Notebook, workflow-job,
-cluster, and catalog-volume operations are selected through `notebooks.py`,
-`jobs.py`, `clusters.py`, and `volumes.py`; `safety.py` centralizes explicit
-mutation confirmation. New domains, such as future AI DP agents, belong in a
-new domain module rather than in the facade. Dependencies flow from server to
-the facade, domain modules, shared helpers, and finally `aidp_common`; domain
-modules must not depend on one another.
+`server.py` is the MCP adapter: it loads validated settings for each tool
+request and calls the Python domain API directly. `notebooks.py`, `jobs.py`,
+`clusters.py`, and `volumes.py` are those domain modules; each receives
+validated settings explicitly. `config.py`, `local_files.py`, `targets.py`,
+`lookups.py`, `validation.py`, and `safety.py` are shared modules, with
+`safety.py` centralizing explicit mutation confirmation. Dependencies flow
+from `server.py` to domain modules, then shared modules, and finally
+`aidp_common`; domain modules must not depend on one another. A future
+`agents.py` belongs beside the existing domain modules, with its MCP tools
+added in `server.py`.
 
 ## Tools
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-27: Remove the duplicate MCP service facade; the server now loads
+  settings lazily and calls cohesive domain modules directly without changing
+  the public MCP contract.
+
 * 2026-09-27: Avoid duplicate notebook local-path validation and clarify that
   relative upload paths work only with the default repository root.
 

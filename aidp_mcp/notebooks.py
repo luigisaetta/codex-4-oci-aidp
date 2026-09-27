@@ -12,6 +12,7 @@ from aidp_python_client.aidataplatform_dp import models
 
 from aidp_common.connection import AidpError
 from aidp_mcp.local_files import PROJECT_ROOT, validate_local_notebook
+from aidp_mcp.lookups import next_page
 from aidp_mcp.safety import should_apply
 from aidp_mcp.targets import workspace_clients
 from aidp_mcp.validation import (
@@ -322,9 +323,10 @@ def list_notebooks(settings, path="/Workspace", name_contains=None, max_results=
                 summaries.append(_notebook_summary(item))
                 if len(summaries) == max_results:
                     break
-            page = (getattr(response, "headers", None) or {}).get("opc-next-page")
-            if not page:
-                break
+            page = next_page(response)
+            if page:
+                continue
+            break
     return {
         "path": directory,
         "name_contains": name_contains,

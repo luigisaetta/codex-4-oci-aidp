@@ -7,14 +7,15 @@ Description: Stdio MCP server exposing scoped AI DP notebook, cluster, and volum
 
 from fastmcp import FastMCP
 
-from aidp_mcp.service import AidpWorkflowService
+from aidp_mcp import clusters, jobs, notebooks, volumes
+from aidp_mcp.config import load_connection_settings
 
 MCP = FastMCP("aidp-mcp")
 
 
-def _service():
-    """Create one short-lived service per MCP request."""
-    return AidpWorkflowService()
+def _settings():
+    """Load validated connection settings for one MCP tool request."""
+    return load_connection_settings()
 
 
 @MCP.tool()
@@ -30,7 +31,9 @@ def upload_notebook(
     must be absolute so the server does not resolve it against its own
     repository.
     """
-    return _service().upload_notebook(local_path, workspace_path, overwrite, apply)
+    return notebooks.upload_notebook(
+        _settings(), local_path, workspace_path, overwrite, apply
+    )
 
 
 @MCP.tool()
@@ -44,7 +47,7 @@ def list_notebooks(
     The optional name filter is a case-insensitive substring match. The path
     must be absolute and rooted at `/Workspace`; listing is non-recursive.
     """
-    return _service().list_notebooks(path, name_contains, max_results)
+    return notebooks.list_notebooks(_settings(), path, name_contains, max_results)
 
 
 @MCP.tool()
@@ -54,7 +57,7 @@ def find_notebook_jobs(workspace_notebook_path: str, max_results: int = 100) -> 
     `workspace_notebook_path` must be absolute and rooted at `/Workspace`.
     This read-only search returns sanitized job and matching-task metadata.
     """
-    return _service().find_notebook_jobs(workspace_notebook_path, max_results)
+    return jobs.find_notebook_jobs(_settings(), workspace_notebook_path, max_results)
 
 
 @MCP.tool()
@@ -66,7 +69,9 @@ def list_catalog_volumes(
     By default only external Object Storage volumes are returned. Results are
     metadata only; no volume files or content are read.
     """
-    return _service().list_catalog_volumes(catalog_name, external_only, max_results)
+    return volumes.list_catalog_volumes(
+        _settings(), catalog_name, external_only, max_results
+    )
 
 
 @MCP.tool()
@@ -82,8 +87,13 @@ def list_volume_files(
     All resource names are exact and case-sensitive. `path` must be absolute
     within the volume. The response contains metadata only, never file content.
     """
-    return _service().list_volume_files(
-        catalog_name, schema_name, volume_name, path, max_results
+    return volumes.list_volume_files(
+        _settings(),
+        catalog_name,
+        schema_name,
+        volume_name,
+        path=path,
+        max_results=max_results,
     )
 
 
@@ -98,7 +108,7 @@ def list_job_runs(
     Provide exactly one selector. This read-only tool returns run keys, states,
     state messages, timestamps, and a truncation indicator.
     """
-    return _service().list_job_runs(job_name, job_key, max_results)
+    return jobs.list_job_runs(_settings(), job_name, job_key, max_results)
 
 
 @MCP.tool()
@@ -112,7 +122,8 @@ def ensure_notebook_job(
     apply: bool = False,
 ) -> dict:
     """Plan or reconcile a managed, single-notebook AI DP workflow job."""
-    return _service().ensure_notebook_job(
+    return jobs.ensure_notebook_job(
+        _settings(),
         job_name,
         workspace_notebook_path,
         cluster_name,
@@ -131,7 +142,8 @@ def start_notebook_job(
     confirm_start: bool = False,
 ) -> dict:
     """Start a managed notebook job; confirm_start=true is required."""
-    return _service().start_notebook_job(
+    return jobs.start_notebook_job(
+        _settings(),
         job_name,
         wait=wait,
         timeout_seconds=timeout_seconds,
@@ -142,13 +154,13 @@ def start_notebook_job(
 @MCP.tool()
 def get_job_run(job_run_key: str) -> dict:
     """Read sanitized status for a previously submitted AI DP job run."""
-    return _service().get_job_run(job_run_key)
+    return jobs.get_job_run(_settings(), job_run_key)
 
 
 @MCP.tool()
 def get_cluster_status(cluster_name: str) -> dict:
     """Read the selected AI DP cluster's state and small configuration summary."""
-    return _service().get_cluster_status(cluster_name)
+    return clusters.get_cluster_status(_settings(), cluster_name)
 
 
 @MCP.tool()
@@ -165,7 +177,8 @@ def set_cluster_state(
     Start can incur compute charges; stop can interrupt workloads. An accepted
     request is not completion unless wait=true reports a completed outcome.
     """
-    return _service().set_cluster_state(
+    return clusters.set_cluster_state(
+        _settings(),
         cluster_name,
         action,
         wait=wait,
@@ -177,7 +190,7 @@ def set_cluster_state(
 @MCP.tool()
 def get_job_run_output(job_run_key: str, max_characters: int = 12000) -> dict:
     """Read bounded plain-text output for a managed single-notebook job run."""
-    return _service().get_job_run_output(job_run_key, max_characters)
+    return jobs.get_job_run_output(_settings(), job_run_key, max_characters)
 
 
 def main():

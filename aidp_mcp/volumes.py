@@ -10,7 +10,7 @@ from pathlib import PurePosixPath
 import oci
 
 from aidp_common.connection import AidpError
-from aidp_mcp.lookups import _resource_key, _sorted_named_resources
+from aidp_mcp.lookups import _resource_key, _sorted_named_resources, next_page
 from aidp_mcp.targets import catalog_clients
 from aidp_mcp.validation import (
     _validate_result_limit,
@@ -358,7 +358,7 @@ def _list_volume_file_entries(
                 if len(entries_by_path) == max_results:
                     is_truncated = index < len(items) - 1
                     break
-            page = (getattr(response, "headers", None) or {}).get("opc-next-page")
+            page = next_page(response)
             if is_truncated or not page:
                 break
         is_truncated = is_truncated or bool(page)

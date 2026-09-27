@@ -2,14 +2,14 @@
 Author: L. Saetta
 Date last modified: 2026-09-27
 License: MIT
-Description: Offline tests for AI DP MCP validation and tool registration.
+Description: Offline tests for the AI DP MCP adapter and tool contract.
 """
-
-# pylint: disable=protected-access,too-many-lines
 
 import asyncio
 import json
 from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -17,8 +17,7 @@ import pytest
 from fastmcp import Client
 
 from aidp_common.connection import AidpError
-from aidp_mcp import targets
-from aidp_mcp import server
+from aidp_mcp import config, notebooks, server, targets
 from aidp_mcp.server import MCP
 
 
@@ -35,14 +34,27 @@ def test_server_main_is_callable_without_arguments():
     assert callable(server.main)
 
 
-def test_mcp_session_survives_a_configuration_error(monkeypatch):
-    """A tool error from invalid settings does not close an in-memory session."""
-    healthy_service = Mock()
-    healthy_service.list_notebooks.return_value = {"notebooks": []}
-    create_service = Mock(
-        side_effect=[AidpError("Set WORKSPACE_NAME first."), healthy_service]
+def test_mcp_session_survives_a_configuration_error(tmp_path, monkeypatch):
+    """A selected-settings error does not close an in-memory MCP session."""
+    missing = tmp_path / "missing.env"
+    monkeypatch.setenv("AIDP_ENV_FILE", str(missing))
+    settings = SimpleNamespace()
+    list_notebooks = Mock(return_value={"notebooks": []})
+    first_call = True
+
+    def load_settings_once():
+        nonlocal first_call
+        if first_call:
+            first_call = False
+            return config.load_connection_settings()
+        return settings
+
+    monkeypatch.setattr(
+        server,
+        "_settings",
+        load_settings_once,
     )
-    monkeypatch.setattr(server, "_service", create_service)
+    monkeypatch.setattr(notebooks, "list_notebooks", list_notebooks)
 
     async def call_tools():
         async with Client(MCP) as client:
@@ -53,13 +65,14 @@ def test_mcp_session_survives_a_configuration_error(monkeypatch):
     invalid_result, healthy_result = asyncio.run(call_tools())
 
     assert invalid_result.is_error
-    assert "WORKSPACE_NAME" in invalid_result.content[0].text
+    assert "AIDP_ENV_FILE" in invalid_result.content[0].text
+    assert str(missing) not in invalid_result.content[0].text
     assert not healthy_result.is_error
-    healthy_service.list_notebooks.assert_called_once_with("/Workspace", None, 100)
+    list_notebooks.assert_called_once_with(settings, "/Workspace", None, 100)
 
 
 def test_mcp_workbench_clients_preserve_numeric_timestamps(monkeypatch):
-    """All MCP AI DP clients retain numeric timestamps returned by the service."""
+    """All MCP AI DP clients retain numeric timestamps returned by the adapter."""
     settings = SimpleNamespace(
         endpoint=None, compartment="compartment", instance_id=None
     )
@@ -87,6 +100,7 @@ def test_mcp_workbench_clients_preserve_numeric_timestamps(monkeypatch):
 def test_server_registers_the_twelve_scoped_tools():
     """The MCP schema exposes the specified tools without cloud access."""
     names = {tool.name for tool in asyncio.run(MCP.list_tools())}
+
     assert names == {
         "upload_notebook",
         "list_notebooks",
@@ -121,3 +135,32 @@ def test_mcp_tool_contract_matches_snapshot():
     ]
 
     assert actual == expected
+
+
+def test_aidp_mcp_modules_import_in_a_fresh_interpreter():
+    """Every package module imports without a hidden circular dependency."""
+    module_names = (
+        "aidp_mcp.config",
+        "aidp_mcp.local_files",
+        "aidp_mcp.validation",
+        "aidp_mcp.lookups",
+        "aidp_mcp.safety",
+        "aidp_mcp.targets",
+        "aidp_mcp.notebooks",
+        "aidp_mcp.jobs",
+        "aidp_mcp.clusters",
+        "aidp_mcp.volumes",
+        "aidp_mcp.server",
+    )
+    command = (
+        "import importlib; "
+        f"[importlib.import_module(name) for name in {module_names!r}]"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", command],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr

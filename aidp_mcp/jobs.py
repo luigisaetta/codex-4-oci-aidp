@@ -12,7 +12,7 @@ import oci
 from aidp_python_client.aidataplatform_dp import models
 
 from aidp_common.connection import AidpError, validate_resource_key
-from aidp_mcp.lookups import _resource_key, find_cluster
+from aidp_mcp.lookups import _resource_key, find_cluster, next_page
 from aidp_mcp.safety import require_confirmation, should_apply
 from aidp_mcp.targets import workspace_clients
 from aidp_mcp.validation import (
@@ -76,7 +76,7 @@ def find_notebook_jobs(settings, workspace_notebook_path, max_results=100):
                 )
                 if len(matches) == max_results:
                     break
-            page = (getattr(response, "headers", None) or {}).get("opc-next-page")
+            page = next_page(response)
             if not page:
                 break
     return {
@@ -147,7 +147,7 @@ def list_job_runs(settings, job_name=None, job_key=None, max_results=25):
                 runs.append(_run_response(item, _resource_key(item, "Job run")))
                 if len(runs) == max_results:
                     break
-            page = (getattr(response, "headers", None) or {}).get("opc-next-page")
+            page = next_page(response)
             if not page:
                 break
 
