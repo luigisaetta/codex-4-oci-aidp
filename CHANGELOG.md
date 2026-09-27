@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* 2026-09-27: Document direct `~/.codex/config.toml` registration for users
+  without the Codex CLI.
+
 * 2026-09-27: Require setuptools 77 or later for the SPDX license metadata,
   document offline editable installation, and prevent duplicate Codex MCP tool
   registrations by replacing an existing `aidp-mcp` entry first.

@@ -122,6 +122,11 @@ command = "/absolute/path/to/aidp-mcp"
 AIDP_ENV_FILE = "/absolute/path/to/aidp.env"
 ```
 
+Without the Codex CLI (for example, when using only the Codex IDE extension),
+edit `~/.codex/config.toml` directly using this form. Replace the `command` of
+an existing `aidp-mcp` entry instead of adding a second entry, then start a
+new Codex session so the change is loaded.
+
 The command stores the executable path and optional settings-file path in
 Codex configuration; it does not store OCI credentials, private keys, OCIDs,
 or endpoints. The `--env` CLI syntax and `env` table were verified on
