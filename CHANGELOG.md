@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* 2026-09-27: Keep AI DP MCP sessions alive after invalid local settings, make
+  the launcher independent of the caller working directory, and allow
+  operator-configured upload roots. Upload plans now include `local_root`
+  without exposing absolute local paths.
+
 * 2026-09-27: Make Python module-header attribution configurable through the
   ignored local `CODE_AUTHOR` setting while shared instructions retain a
   generic fallback.

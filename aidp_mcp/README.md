@@ -25,9 +25,9 @@ Run the setup in the repository root first:
   action.
 
 The launcher is [`scripts/start_aidp_mcp.sh`](../scripts/start_aidp_mcp.sh).
-It starts `python -m aidp_mcp.server` in the project Conda environment. Do not
-start it manually in an interactive terminal: an MCP client must own its
-standard input and output.
+It starts `python -m aidp_mcp.server` in the project Conda environment and can
+be launched from any working directory. Do not start it manually in an
+interactive terminal: an MCP client must own its standard input and output.
 
 For the lifetime of its process, the server caches only the resolved AI DP
 instance OCID and workspace key; SDK clients, credentials, and tool results
@@ -37,11 +37,24 @@ deleted or renamed target can fail once, clears its cached target on HTTP 404,
 and is resolved again by the following request. Prefer a compartment OCID over
 a name to avoid the initial OCI Identity lookup.
 
+### Local upload roots
+
+`AIDP_ALLOWED_ROOTS` optionally lists local directories from which notebooks
+may be uploaded, separated by the operating system path separator (`:` on
+macOS and Linux). An empty or absent value permits only this repository. Each
+configured directory must exist and cannot be the filesystem root, the user's
+home directory, or an ancestor of the home directory. These limits prevent an
+MCP tool from reading broadly scoped local configuration or key material.
+
+The setting is operator configuration in `.env` or the process environment,
+not an `upload_notebook` parameter. A model therefore cannot expand its own
+local-file access. Symbolic links are resolved before the containment check.
+
 ## Tools
 
 | Tool | Type | Description |
 | --- | --- | --- |
-| `upload_notebook` | Mutation, plan by default | Validates a repository-local `.ipynb` file and plans or uploads it to an explicit workspace-relative path. Set `apply=true` to mutate; replacing an existing notebook also requires `overwrite=true`. |
+| `upload_notebook` | Mutation, plan by default | Validates an allowed-root local `.ipynb` file and plans or uploads it to an explicit workspace-relative path. Set `apply=true` to mutate; replacing an existing notebook also requires `overwrite=true`. |
 | `list_notebooks` | Read-only | Lists bounded, non-recursive notebook metadata in an explicit `/Workspace` directory, with an optional name substring filter. |
 | `find_notebook_jobs` | Read-only | Finds workflow jobs in the configured workspace that use one exact `/Workspace/...ipynb` notebook. |
 | `list_catalog_volumes` | Read-only | Lists visible schemas and volumes in one exact catalog. By default, only external Object Storage volumes are returned. |
@@ -60,7 +73,7 @@ credentials, notebook content, volume-file content, or arbitrary SDK payloads.
 
 ## Use with Codex
 
-From the repository root, register the local stdio server with the Codex CLI:
+Register the local stdio server once with the Codex CLI:
 
 ```bash
 codex mcp add aidp-mcp -- "$(pwd)/scripts/start_aidp_mcp.sh"
@@ -78,7 +91,10 @@ Start a new Codex session after adding or changing the registration. In the
 Codex TUI, use `/mcp` to inspect active MCP servers. Then ask Codex for a
 concrete, scoped action, for example: “List external volumes in catalog
 `<catalog-name>`” or “Plan the upload of `notebooks/example.ipynb` to
-`examples/example.ipynb`.”
+`examples/example.ipynb`."
+
+After registration, the launcher can be used from any Codex project; it
+changes into its own repository root before importing the MCP server.
 
 To replace the registration after moving the repository, remove it and add it
 again from the new repository root:

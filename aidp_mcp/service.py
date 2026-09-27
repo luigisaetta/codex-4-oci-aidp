@@ -1,18 +1,20 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-16
+Date last modified: 2026-09-27
 License: MIT
 Description: Validated AI DP notebook upload and single-task workflow operations.
 """
 
 # This deliberately keeps the MCP service's cohesive validation and response
 # boundary in one module; its supported operation set exceeds Pylint's default.
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines,duplicate-code
 
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
+import argparse
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 from threading import Lock
 import time
@@ -101,6 +103,21 @@ class Target:
     cluster_name: str
 
 
+class McpArgumentParser(argparse.ArgumentParser):
+    """Convert MCP configuration errors into actionable tool failures."""
+
+    def error(self, message):
+        """Raise an error that FastMCP returns without ending its process.
+
+        Args:
+            message: Sanitized argparse validation message.
+
+        Raises:
+            AidpError: Always, with the original actionable message.
+        """
+        raise AidpError(message)
+
+
 def load_connection_settings():
     """Load and validate the shared project connection settings.
 
@@ -108,21 +125,84 @@ def load_connection_settings():
         argparse.Namespace: Validated shared connection settings.
 
     Raises:
-        SystemExit: The project configuration is incomplete or invalid.
+        AidpError: The project configuration is incomplete or invalid.
     """
-    parser, _, _ = connection_parser([], "Run AI DP notebook workflow MCP tools.")
+    parser, setting, _ = connection_parser(
+        [],
+        "Run AI DP notebook workflow MCP tools.",
+        parser_class=McpArgumentParser,
+    )
     args = parser.parse_args([])
     validate_connection(args, parser)
     if not args.workspace_name:
         parser.error("Set WORKSPACE_NAME before using AI DP MCP tools.")
+    args.allowed_roots = allowed_local_roots(setting("AIDP_ALLOWED_ROOTS", ""))
     return args
 
 
-def validate_local_notebook(local_path):
+def allowed_local_roots(value):
+    """Resolve and validate the operator-configured upload roots.
+
+    Args:
+        value: Colon- or platform-path-separator-delimited directory list.
+
+    Returns:
+        tuple[Path, ...]: Canonical directories from which uploads are allowed.
+
+    Raises:
+        AidpError: A configured root is missing, not a directory, or too broad.
+    """
+    if not value:
+        return (PROJECT_ROOT,)
+    home = Path.home().resolve()
+    roots = []
+    for entry in value.split(os.pathsep):
+        if not entry:
+            continue
+        root = Path(entry).expanduser().resolve()
+        filesystem_root = Path(root.anchor)
+        if (
+            not root.is_dir()
+            or root == filesystem_root
+            or root == home
+            or home.is_relative_to(root)
+        ):
+            raise AidpError("AIDP_ALLOWED_ROOTS contains an invalid allowed root.")
+        roots.append(root)
+    return tuple(roots) or (PROJECT_ROOT,)
+
+
+def validate_local_path(local_path, roots):
+    """Resolve one candidate and confirm it is contained in an allowed root.
+
+    Args:
+        local_path: Candidate file path supplied to an MCP tool.
+        roots: Canonical allowed directories selected by the operator.
+
+    Returns:
+        tuple[Path, Path]: Canonical candidate path and its matching root.
+
+    Raises:
+        AidpError: The candidate is outside every allowed root.
+    """
+    candidate = Path(local_path).expanduser().resolve()
+    for root in roots:
+        try:
+            candidate.relative_to(root)
+            return candidate, root
+        except ValueError:
+            continue
+    raise AidpError(
+        "Local notebook path must be inside an allowed root; see AIDP_ALLOWED_ROOTS."
+    )
+
+
+def validate_local_notebook(local_path, roots=None):
     """Read a local notebook safely and return its parsed JSON and digest.
 
     Args:
-        local_path: Repository-relative or absolute notebook path.
+        local_path: Local notebook path within an allowed root.
+        roots: Optional canonical allowed roots; defaults to the project root.
 
     Returns:
         tuple[Path, dict, str]: Canonical path, parsed notebook JSON, SHA-256.
@@ -130,11 +210,7 @@ def validate_local_notebook(local_path):
     Raises:
         AidpError: The path is unsafe, absent, not a notebook, or invalid JSON.
     """
-    candidate = Path(local_path).expanduser().resolve()
-    try:
-        candidate.relative_to(PROJECT_ROOT)
-    except ValueError as exc:
-        raise AidpError("Local notebook path must be inside the repository.") from exc
+    candidate, _ = validate_local_path(local_path, roots or (PROJECT_ROOT,))
     if candidate.suffix != ".ipynb" or not candidate.is_file():
         raise AidpError("Local notebook must be an existing .ipynb file.")
     try:
@@ -963,7 +1039,7 @@ class AidpWorkflowService:
         """Plan or copy a local notebook to an AI DP workspace.
 
         Args:
-            local_path: Local notebook path under the repository root.
+            local_path: Local notebook path under a configured allowed root.
             workspace_path: Destination notebook path relative to the workspace root.
             overwrite: Allow replacement of existing remote content.
             apply: Submit the update after the plan is reported.
@@ -974,7 +1050,9 @@ class AidpWorkflowService:
         Raises:
             AidpError: Validation or AI DP discovery/upload fails.
         """
-        local_file, content, digest = validate_local_notebook(local_path)
+        roots = getattr(self.settings, "allowed_roots", (PROJECT_ROOT,))
+        local_file, content, digest = validate_local_notebook(local_path, roots)
+        _, local_root = validate_local_path(local_file, roots)
         destination = validate_workspace_path(workspace_path)
         service_path = workspace_content_path(destination)
         with self._clients() as clients:
@@ -1001,7 +1079,8 @@ class AidpWorkflowService:
             result = {
                 "action": action,
                 "apply": apply,
-                "local_path": str(local_file.relative_to(PROJECT_ROOT)),
+                "local_path": str(local_file.relative_to(local_root)),
+                "local_root": local_root.name,
                 "workspace_path": destination,
                 "sha256": digest,
             }

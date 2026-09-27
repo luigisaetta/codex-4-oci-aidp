@@ -1,6 +1,6 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-15
+Date last modified: 2026-09-27
 License: MIT
 Description: Shared dotenv loading and OCI connection command-line settings.
 """
@@ -38,22 +38,28 @@ def endpoint_origin(value):
     return value.rstrip("/")
 
 
-def connection_parser(argv, description, default_env_file=DEFAULT_ENV_FILE):
+def connection_parser(
+    argv,
+    description,
+    default_env_file=DEFAULT_ENV_FILE,
+    parser_class=argparse.ArgumentParser,
+):
     """Create a parser and dotenv lookup, preserving CLI > environment > file order.
 
     Args:
         argv: CLI arguments, or None for process arguments.
         description: Feature help text.
         default_env_file: Default settings path, independent of the working directory.
+        parser_class: Argument parser implementation used for error handling.
 
     Returns:
         Parser, settings lookup callable, and selected dotenv path.
     """
-    bootstrap = argparse.ArgumentParser(add_help=False)
+    bootstrap = parser_class(add_help=False)
     bootstrap.add_argument("--env-file", default=str(default_env_file))
     initial, _ = bootstrap.parse_known_args(argv)
     env_path = Path(initial.env_file).expanduser()
-    parser = argparse.ArgumentParser(parents=[bootstrap], description=description)
+    parser = parser_class(parents=[bootstrap], description=description)
     if (
         initial.env_file != str(default_env_file)
         and not env_path.is_file()

@@ -1,6 +1,6 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-16
+Date last modified: 2026-09-27
 License: MIT
 Description: Offline tests for AI DP MCP validation and tool registration.
 """
@@ -17,9 +17,12 @@ from unittest.mock import Mock
 
 import oci
 import pytest
+from fastmcp import Client
 
 from aidp_common.connection import AidpError
+from aidp_common import settings as common_settings
 from aidp_mcp import service
+from aidp_mcp import server
 from aidp_mcp.server import MCP
 
 
@@ -50,8 +53,207 @@ def test_validate_local_notebook_rejects_path_outside_repository(tmp_path, monke
     outside = tmp_path / "outside.ipynb"
     outside.write_text("{}", encoding="utf-8")
 
-    with pytest.raises(AidpError, match="inside the repository"):
+    with pytest.raises(AidpError, match="AIDP_ALLOWED_ROOTS"):
         service.validate_local_notebook(outside)
+
+
+def test_allowed_roots_default_to_project_root(tmp_path, monkeypatch):
+    """An absent allowed-roots setting retains the repository-only boundary."""
+    monkeypatch.setattr(service, "PROJECT_ROOT", tmp_path)
+
+    assert service.allowed_local_roots("") == (tmp_path,)
+
+
+def test_validate_local_notebook_accepts_second_configured_root(tmp_path):
+    """A notebook under any configured root is accepted with its matching root."""
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    notebook = second / "nested" / "example.ipynb"
+    notebook.parent.mkdir()
+    notebook.write_text('{"nbformat": 4}', encoding="utf-8")
+    roots = service.allowed_local_roots(f"{first}{service.os.pathsep}{second}")
+
+    path, content, _ = service.validate_local_notebook(notebook, roots)
+    _, matching_root = service.validate_local_path(path, roots)
+
+    assert content == {"nbformat": 4}
+    assert matching_root == second
+
+
+def test_validate_local_path_rejects_symlink_that_escapes_allowed_root(tmp_path):
+    """Path resolution prevents an allowed-root symlink from exposing another file."""
+    root = tmp_path / "allowed"
+    root.mkdir()
+    outside = tmp_path / "outside.ipynb"
+    outside.write_text("{}", encoding="utf-8")
+    linked = root / "linked.ipynb"
+    linked.symlink_to(outside)
+
+    with pytest.raises(AidpError, match="AIDP_ALLOWED_ROOTS"):
+        service.validate_local_notebook(linked, (root,))
+
+
+@pytest.mark.parametrize("kind", ["filesystem", "home", "ancestor", "missing", "file"])
+def test_allowed_roots_rejects_broad_or_invalid_directories(
+    tmp_path, monkeypatch, kind
+):
+    """Invalid root settings do not reveal their configured local paths."""
+    sandbox = tmp_path / "sandbox"
+    home = sandbox / "home"
+    home.mkdir(parents=True)
+    regular_file = sandbox / "not-directory"
+    regular_file.write_text("data", encoding="utf-8")
+    monkeypatch.setattr(service.Path, "home", classmethod(lambda _cls: home))
+    values = {
+        "filesystem": "/",
+        "home": str(home),
+        "ancestor": str(sandbox),
+        "missing": str(sandbox / "missing"),
+        "file": str(regular_file),
+    }
+
+    with pytest.raises(AidpError) as error:
+        service.allowed_local_roots(values[kind])
+
+    assert "AIDP_ALLOWED_ROOTS" in str(error.value)
+    assert values[kind] not in str(error.value)
+
+
+def _mcp_settings_from_env(monkeypatch, env_file):
+    """Load MCP settings from one test-only dotenv file."""
+    monkeypatch.setattr(
+        service,
+        "connection_parser",
+        lambda argv, description, parser_class: common_settings.connection_parser(
+            argv, description, env_file, parser_class
+        ),
+    )
+    return service.load_connection_settings()
+
+
+def test_load_connection_settings_converts_missing_workspace_to_aidp_error(
+    tmp_path, monkeypatch
+):
+    """Incomplete MCP settings return an error instead of ending the server."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "COMPARTMENT=compartment\nOCI_CONFIG_FILE=config\nOCI_PROFILE=DEFAULT\n"
+        "REGION=eu-frankfurt-1\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AidpError, match="WORKSPACE_NAME"):
+        _mcp_settings_from_env(monkeypatch, env_file)
+
+
+def test_load_connection_settings_converts_invalid_region_to_aidp_error(
+    tmp_path, monkeypatch
+):
+    """Argparse region validation remains actionable without SystemExit."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "COMPARTMENT=compartment\nOCI_CONFIG_FILE=config\nOCI_PROFILE=DEFAULT\n"
+        "REGION=not-a-region\nWORKSPACE_NAME=workspace\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AidpError, match="REGION"):
+        _mcp_settings_from_env(monkeypatch, env_file)
+
+
+def test_mcp_parser_converts_missing_explicit_env_file_to_aidp_error(tmp_path):
+    """Parser setup errors remain tool errors when the MCP parser is selected."""
+    missing = tmp_path / "missing.env"
+
+    with pytest.raises(AidpError, match="explicitly selected .env"):
+        common_settings.connection_parser(
+            ["--env-file", str(missing)],
+            "Test MCP settings.",
+            parser_class=service.McpArgumentParser,
+        )
+
+
+def test_process_allowed_roots_overrides_dotenv_value(tmp_path, monkeypatch):
+    """Process configuration keeps its documented precedence over dotenv."""
+    dotenv_root = tmp_path / "dotenv-root"
+    environment_root = tmp_path / "environment-root"
+    dotenv_root.mkdir()
+    environment_root.mkdir()
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "COMPARTMENT=compartment\nOCI_CONFIG_FILE=config\nOCI_PROFILE=DEFAULT\n"
+        "REGION=eu-frankfurt-1\nWORKSPACE_NAME=workspace\n"
+        f"AIDP_ALLOWED_ROOTS={dotenv_root}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AIDP_ALLOWED_ROOTS", str(environment_root))
+
+    loaded = _mcp_settings_from_env(monkeypatch, env_file)
+
+    assert loaded.allowed_roots == (environment_root.resolve(),)
+
+
+def test_upload_plan_uses_matching_extra_root_without_remote_write(
+    tmp_path, monkeypatch
+):
+    """A plan from a second root exposes only relative local location details."""
+    root = tmp_path / "my-langgraph-agent"
+    root.mkdir()
+    notebook = root / "notebooks" / "example.ipynb"
+    notebook.parent.mkdir()
+    notebook.write_text('{"nbformat": 4}', encoding="utf-8")
+    workflow_service = service.AidpWorkflowService(
+        settings=SimpleNamespace(allowed_roots=(root,))
+    )
+
+    @contextmanager
+    def clients():
+        yield "instance", "workspace", Mock(), Mock(), Mock()
+
+    missing = oci.exceptions.ServiceError(404, "NotFound", {}, "missing")
+    request = Mock(side_effect=missing)
+    monkeypatch.setattr(workflow_service, "_clients", clients)
+    monkeypatch.setattr(service, "notebook_content_request", request)
+
+    result = workflow_service.upload_notebook(
+        notebook, "plans/example.ipynb", apply=False
+    )
+
+    assert result == {
+        "action": "create",
+        "apply": False,
+        "local_path": "notebooks/example.ipynb",
+        "local_root": "my-langgraph-agent",
+        "workspace_path": "plans/example.ipynb",
+        "sha256": result["sha256"],
+    }
+    assert len(result["sha256"]) == 64
+    assert request.call_args.kwargs["method"] == "GET"
+
+
+def test_mcp_session_survives_a_configuration_error(monkeypatch):
+    """A tool error from invalid settings does not close an in-memory session."""
+    healthy_service = Mock()
+    healthy_service.list_notebooks.return_value = {"notebooks": []}
+    create_service = Mock(
+        side_effect=[AidpError("Set WORKSPACE_NAME first."), healthy_service]
+    )
+    monkeypatch.setattr(server, "_service", create_service)
+
+    async def call_tools():
+        async with Client(MCP) as client:
+            invalid = await client.call_tool("list_notebooks", raise_on_error=False)
+            healthy = await client.call_tool("list_notebooks", raise_on_error=False)
+        return invalid, healthy
+
+    invalid_result, healthy_result = asyncio.run(call_tools())
+
+    assert invalid_result.is_error
+    assert "WORKSPACE_NAME" in invalid_result.content[0].text
+    assert not healthy_result.is_error
+    healthy_service.list_notebooks.assert_called_once_with("/Workspace", None, 100)
 
 
 @pytest.mark.parametrize(
