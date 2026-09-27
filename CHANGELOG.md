@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* 2026-09-27: Add the `aidp-notebook-deploy-and-run` operational skill for
+  approved AI DP notebook deployment and managed-job execution.
+
 * 2026-09-27: Add safe user-scope AI DP skill installation, documentation, and
   offline validation for skill metadata and installer behavior.
 

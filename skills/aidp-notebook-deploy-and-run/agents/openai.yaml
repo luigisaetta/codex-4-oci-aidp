@@ -1,0 +1,13 @@
+interface:
+  display_name: "AI DP Notebook Deploy and Run"
+  short_description: "Deploy and run an AI DP notebook job"
+  default_prompt: "Use $aidp-notebook-deploy-and-run to deploy a notebook and run its managed AI DP job."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "aidp-mcp"
+      description: "Managed AI DP notebook workflow tools"
+
+policy:
+  allow_implicit_invocation: true

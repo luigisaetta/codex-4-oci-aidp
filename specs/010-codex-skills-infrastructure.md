@@ -344,3 +344,20 @@ Verified on 2026-09-27 in the `codex-4-oci-aidp` Conda environment.
   snapshot-contract check for `aidp-notebook-deploy-and-run`, which remains
   pending implementation in section 3.
 * `git diff --check` passed.
+
+### Section 3 implementation checks
+
+Verified on 2026-09-27 in the `codex-4-oci-aidp` Conda environment.
+
+* Created `skills/aidp-notebook-deploy-and-run/` with the required `SKILL.md`
+  and `agents/openai.yaml`. No `scripts/`, `references/`, or `assets/` were
+  added because this concise, tool-guidance workflow has no concrete need for
+  them.
+* `agents/openai.yaml` declares one `aidp-mcp` MCP dependency. Its `transport`
+  field is omitted: the available skill metadata guidance does not define a
+  transport value for a local stdio server.
+* `python /Users/lsaetta/.codex/skills/.system/skill-creator/scripts/quick_validate.py
+  skills/aidp-notebook-deploy-and-run` passed (`Skill is valid!`).
+* `python -m pytest -q tests/test_skills.py` passed: 3 passed. This includes
+  the MCP snapshot-contract check for every required workflow tool name.
+* `git diff --check` passed.
