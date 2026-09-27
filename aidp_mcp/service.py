@@ -15,7 +15,6 @@ import os
 from pathlib import Path, PurePosixPath
 from threading import Lock
 import time
-from urllib.parse import quote
 from uuid import uuid4
 
 import oci
@@ -40,6 +39,25 @@ from aidp_common.connection import (
 )
 from aidp_common.settings import connection_parser, validate_connection
 from aidp_mcp.safety import require_confirmation, should_apply
+from aidp_mcp.lookups import (
+    _resource_key,
+    _sorted_named_resources,
+    find_cluster,
+    find_cluster_details,
+    find_cluster_status,
+    find_workspace,
+)
+from aidp_mcp.validation import (
+    _normalized_task_notebook_path,
+    _validate_result_limit,
+    encoded_content_path,
+    validate_resource_name,
+    validate_volume_path,
+    validate_workspace_directory,
+    validate_workspace_notebook_path,
+    validate_workspace_path,
+    workspace_content_path,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TERMINAL_JOB_STATES = {"SUCCESS", "FAILED", "ERROR", "CANCELED", "TIMED_OUT"}
@@ -89,16 +107,6 @@ def _clear_target_cache_entry(key):
     """Remove one target only when it is still present in the process cache."""
     with TARGET_CACHE_LOCK:
         _TARGET_CACHE.pop(key, None)
-
-
-@dataclass(frozen=True)
-class JobTarget:
-    """Resolved AI DP instance, workspace, and cluster identifiers."""
-
-    instance_id: str
-    workspace_key: str
-    cluster_key: str
-    cluster_name: str
 
 
 class McpArgumentParser(argparse.ArgumentParser):
@@ -242,146 +250,6 @@ def validate_local_notebook(local_path, roots=None):
     if not isinstance(content, dict) or not content:
         raise AidpError("Local notebook JSON must be a nonempty object.")
     return candidate, matching_root, content, hashlib.sha256(payload).hexdigest()
-
-
-def validate_workspace_path(workspace_path):
-    """Validate an SDK workspace-relative notebook path without traversal.
-
-    Args:
-        workspace_path: POSIX path relative to the AI DP workspace root.
-
-    Returns:
-        str: Normalized workspace path.
-
-    Raises:
-        AidpError: The path is not a relative notebook path.
-    """
-    path = PurePosixPath(workspace_path)
-    if (
-        path.is_absolute()
-        or path.suffix != ".ipynb"
-        or ".." in path.parts
-        or path == PurePosixPath(".")
-    ):
-        raise AidpError("Workspace path must be a relative .ipynb path.")
-    return str(path)
-
-
-def workspace_content_path(workspace_path):
-    """Return the notebook service's absolute path for a relative input.
-
-    Args:
-        workspace_path: Valid path relative to the workspace root.
-
-    Returns:
-        str: Absolute notebook service path beneath `/Workspace`.
-    """
-    return f"/Workspace/{workspace_path}"
-
-
-def validate_workspace_directory(path):
-    """Validate an absolute AI DP workspace directory path.
-
-    Args:
-        path: Absolute directory path rooted at ``/Workspace``.
-
-    Returns:
-        str: Normalized absolute workspace directory path.
-
-    Raises:
-        AidpError: The path is not a safe workspace directory.
-    """
-    if not isinstance(path, str) or not path.strip():
-        raise AidpError("Workspace directory path must be a nonempty string.")
-    candidate = PurePosixPath(path)
-    if not candidate.is_absolute() or candidate.parts[1:2] != ("Workspace",):
-        raise AidpError("Workspace directory path must be rooted at /Workspace.")
-    if any(part in (".", "..") for part in candidate.parts):
-        raise AidpError("Workspace directory path must not contain traversal.")
-    return str(candidate)
-
-
-def validate_workspace_notebook_path(path):
-    """Validate an absolute notebook path used for workspace discovery.
-
-    Args:
-        path: Absolute notebook path rooted at ``/Workspace``.
-
-    Returns:
-        str: Normalized absolute notebook path.
-
-    Raises:
-        AidpError: The path is not a safe workspace notebook path.
-    """
-    candidate = PurePosixPath(validate_workspace_directory(path))
-    if candidate.suffix != ".ipynb":
-        raise AidpError("Workspace notebook path must end in .ipynb.")
-    return str(candidate)
-
-
-def validate_resource_name(value, label):
-    """Validate an exact AI DP display-name selector.
-
-    Args:
-        value: Candidate catalog, schema, or volume display name.
-        label: Human-readable resource type for the error message.
-
-    Returns:
-        str: The unchanged, nonempty display name.
-
-    Raises:
-        AidpError: The selector is not a supported display name.
-    """
-    if not isinstance(value, str) or not value.strip() or len(value) > 255:
-        raise AidpError(f"{label} name must be a nonempty string up to 255 characters.")
-    return value
-
-
-def validate_volume_path(path):
-    """Validate one absolute, traversal-free path within a volume.
-
-    Args:
-        path: Absolute POSIX path rooted at the volume root.
-
-    Returns:
-        str: Normalized POSIX path.
-
-    Raises:
-        AidpError: The path is empty, relative, or contains traversal.
-    """
-    if not isinstance(path, str) or not path.strip():
-        raise AidpError("Volume path must be a nonempty absolute POSIX path.")
-    candidate = PurePosixPath(path)
-    if not candidate.is_absolute() or any(
-        part in (".", "..") for part in candidate.parts
-    ):
-        raise AidpError("Volume path must be absolute and must not contain traversal.")
-    return str(candidate)
-
-
-def _normalized_task_notebook_path(path):
-    """Normalize a remote notebook-task path for a safe equality comparison."""
-    if not isinstance(path, str) or not path:
-        return None
-    candidate = PurePosixPath(path)
-    try:
-        if candidate.is_absolute():
-            return validate_workspace_notebook_path(path)
-        return workspace_content_path(validate_workspace_path(path))
-    except AidpError:
-        return None
-
-
-def encoded_content_path(content_path):
-    """Encode an absolute notebook path for the SDK URL path parameter.
-
-    Args:
-        content_path: Absolute path returned or accepted by the notebook service.
-
-    Returns:
-        str: URL-path-safe encoded content path.
-    """
-    return quote(content_path, safe="")
 
 
 def notebook_content_request(
@@ -528,126 +396,6 @@ def create_workspace_folder(notebooks, instance_id, workspace_key, folder_path):
         raise
     if response.status not in (200, 201):
         raise AidpError(f"Workspace folder creation returned HTTP {response.status}.")
-
-
-def _resource_key(resource, label):
-    value = getattr(resource, "key", None)
-    if not isinstance(value, str) or not value:
-        raise AidpError(f"{label} response is missing its key.")
-    validate_resource_key(value)
-    return value
-
-
-def find_workspace(workspaces, instance_id, workspace_name):
-    """Resolve one exact workspace name within an AI DP instance.
-
-    Args:
-        workspaces: Generated WorkspaceClient.
-        instance_id: AI DP instance OCID.
-        workspace_name: Exact workspace display name.
-
-    Returns:
-        str: Workspace key.
-
-    Raises:
-        AidpError: The workspace is absent or ambiguous.
-    """
-    matches = [
-        item
-        for item in oci.pagination.list_call_get_all_results(
-            workspaces.list_workspaces, instance_id, display_name=workspace_name
-        ).data
-        if getattr(item, "display_name", None) == workspace_name
-    ]
-    if len(matches) != 1:
-        raise AidpError(f"Workspace name has {len(matches)} visible matches.")
-    return _resource_key(matches[0], "Workspace")
-
-
-def find_cluster(clusters, instance_id, workspace_key, cluster_name):
-    """Resolve one exact active cluster in a workspace.
-
-    Args:
-        clusters: Generated ClusterClient.
-        instance_id: AI DP instance OCID.
-        workspace_key: Workspace key.
-        cluster_name: Exact cluster display name.
-
-    Returns:
-        JobTarget: Resolved cluster target.
-
-    Raises:
-        AidpError: The cluster is absent, ambiguous, or not active.
-    """
-    matches = [
-        item
-        for item in oci.pagination.list_call_get_all_results(
-            clusters.list_clusters,
-            instance_id,
-            workspace_key,
-            display_name=cluster_name,
-        ).data
-        if getattr(item, "display_name", None) == cluster_name
-    ]
-    if len(matches) != 1:
-        raise AidpError(f"Cluster name has {len(matches)} visible matches.")
-    key = _resource_key(matches[0], "Cluster")
-    cluster = clusters.get_cluster(instance_id, workspace_key, key).data
-    if getattr(cluster, "state", None) != "ACTIVE":
-        raise AidpError("Selected cluster must be ACTIVE before a job run.")
-    return JobTarget(instance_id, workspace_key, key, cluster_name)
-
-
-def find_cluster_status(clusters, instance_id, workspace_key, cluster_name):
-    """Resolve one exact cluster and return its current detailed SDK model.
-
-    Args:
-        clusters: Generated ClusterClient.
-        instance_id: Selected AI DP instance OCID.
-        workspace_key: Selected workspace key.
-        cluster_name: Exact cluster display name.
-
-    Returns:
-        object: The detailed cluster model returned by AI DP.
-
-    Raises:
-        AidpError: The cluster is absent, ambiguous, or lacks a resource key.
-    """
-    return find_cluster_details(clusters, instance_id, workspace_key, cluster_name).data
-
-
-def find_cluster_details(clusters, instance_id, workspace_key, cluster_name):
-    """Resolve one exact cluster and return its detailed SDK response.
-
-    This preserves the ETag required to protect a lifecycle mutation from a
-    concurrent cluster update.
-
-    Args:
-        clusters: Generated ClusterClient.
-        instance_id: Selected AI DP instance OCID.
-        workspace_key: Selected workspace key.
-        cluster_name: Exact cluster display name.
-
-    Returns:
-        oci.response.Response: Detailed cluster response, including headers.
-
-    Raises:
-        AidpError: The cluster is absent, ambiguous, or lacks a resource key.
-    """
-    matches = [
-        item
-        for item in oci.pagination.list_call_get_all_results(
-            clusters.list_clusters,
-            instance_id,
-            workspace_key,
-            display_name=cluster_name,
-        ).data
-        if getattr(item, "display_name", None) == cluster_name
-    ]
-    if len(matches) != 1:
-        raise AidpError(f"Expected exactly one cluster named {cluster_name!r}.")
-    key = _resource_key(matches[0], "Cluster")
-    return clusters.get_cluster(instance_id, workspace_key, key)
 
 
 def _find_job(workflows, instance_id, workspace_key, job_name):
@@ -1704,35 +1452,6 @@ class AidpWorkflowService:
             return _task_run_output_response(
                 job_run_key, task_run, output, max_characters
             )
-
-
-def _validate_result_limit(value, maximum):
-    """Validate a bounded MCP collection result limit."""
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or not 1 <= value <= maximum
-    ):
-        raise AidpError(f"max_results must be an integer from 1 through {maximum}.")
-
-
-def _sorted_named_resources(resources, label):
-    """Validate and sort remote resource summaries deterministically."""
-    checked = []
-    for resource in resources:
-        display_name = getattr(resource, "display_name", None)
-        if not isinstance(display_name, str) or not display_name:
-            raise AidpError(f"{label} response is missing its display name.")
-        _resource_key(resource, label)
-        checked.append(resource)
-    return sorted(
-        checked,
-        key=lambda item: (
-            item.display_name.casefold(),
-            item.display_name,
-            getattr(item, "key"),
-        ),
-    )
 
 
 def _find_exact_catalog(catalogs, instance_id, catalog_name):

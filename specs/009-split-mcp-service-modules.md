@@ -308,6 +308,15 @@ imports `aidp_mcp.service` directly, without an alias. In the
 full offline suite passed (196 tests), Pylint scored 10.00/10, and `git diff
 --check` was clean. The MCP snapshot is unchanged in this step.
 
+Step 1 — validation and lookups (commit `Extract MCP validation and lookup
+helpers`, 2026-09-27): moved the real
+remote-path, resource-name, encoding, result-limit, and exact-resource lookup
+helpers to `validation.py` (161 lines) and `lookups.py` (161 lines). Direct
+validation tests moved to `test_validation.py` and use that module directly.
+`service.py` is 1,882 lines. The MCP suite collected 113 tests; the full suite
+passed 196 tests, Black was clean, Pylint scored 10.00/10, `git diff --check`
+was clean, and the MCP snapshot was unchanged.
+
 Remote verification: pending. In an authorized new Codex session, call
 `get_cluster_status` and `list_notebooks`, then plan one notebook upload with
 `apply=false`; record only sanitized results.
