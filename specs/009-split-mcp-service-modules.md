@@ -366,6 +366,18 @@ tests, Black was clean, Pylint scored 10.00/10, `git diff --check` was clean,
 and the MCP snapshot was unchanged. Manual local MCP verification confirmed
 that the expected 12 tools remain registered.
 
+Step 4 — clusters (commit `Extract MCP cluster operations`, 2026-09-27): moved
+real cluster status, lifecycle submission, response construction, and bounded
+polling to `clusters.py` (260 lines). `service.py` is 920 lines and retains
+the public methods as delegating facades with their existing signatures,
+docstrings, outputs, and messages. The six related tests moved to
+`test_clusters.py`, whose client and lookup patches target `clusters`; the
+remaining service client variables were renamed to avoid shadowing the domain
+module. The MCP suite collected 113 tests; the full suite passed 196 tests,
+Black was clean, Pylint scored 10.00/10, `git diff --check` was clean, and the
+MCP snapshot was unchanged. Manual local MCP verification confirmed that the
+expected 12 tools remain registered.
+
 Remote verification: pending. In an authorized new Codex session, call
 `get_cluster_status` and `list_notebooks`, then plan one notebook upload with
 `apply=false`; record only sanitized results.
