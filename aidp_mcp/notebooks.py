@@ -12,7 +12,7 @@ from aidp_python_client.aidataplatform_dp import models
 
 from aidp_common.connection import AidpError
 from aidp_mcp.local_files import PROJECT_ROOT, validate_local_notebook
-from aidp_mcp.lookups import next_page
+from aidp_mcp.lookups import SDK_PAGE_SIZE, next_page
 from aidp_mcp.safety import should_apply
 from aidp_mcp.targets import workspace_clients
 from aidp_mcp.validation import (
@@ -310,7 +310,7 @@ def list_notebooks(settings, path="/Workspace", name_contains=None, max_results=
                 instance_id=instance_id,
                 workspace_key=workspace_key,
                 path=directory,
-                limit=max_results - len(summaries),
+                limit=min(SDK_PAGE_SIZE, max_results - len(summaries)),
                 page=page,
             )
             for item in getattr(response.data, "items", None) or []:

@@ -51,8 +51,8 @@ def list_notebooks(
 
 
 @MCP.tool()
-def list_agents(name_contains: str | None = None, max_results: int = 50) -> dict:
-    """List bounded, read-only metadata for configured-workspace agents.
+def list_aidp_agents(name_contains: str | None = None, max_results: int = 50) -> dict:
+    """AI DP agent list: bounded, read-only configured-workspace metadata.
 
     The optional name filter is a case-insensitive substring match. No agent
     code or deployment is changed.
@@ -61,8 +61,8 @@ def list_agents(name_contains: str | None = None, max_results: int = 50) -> dict
 
 
 @MCP.tool()
-def get_agent(agent_name: str) -> dict:
-    """Read one exact-name agent and its bounded deployment metadata.
+def get_aidp_agent(agent_name: str) -> dict:
+    """AI DP agent read: one exact-name agent and bounded deployment metadata.
 
     This read-only tool matches the agent display name exactly and
     case-sensitively; it does not change the agent or its deployments.
@@ -71,8 +71,8 @@ def get_agent(agent_name: str) -> dict:
 
 
 @MCP.tool()
-def list_agent_sessions(agent_name: str, max_results: int = 25) -> dict:
-    """List bounded, newest-first sessions for one exact-name agent.
+def list_aidp_agent_sessions(agent_name: str, max_results: int = 25) -> dict:
+    """AI DP agent sessions: bounded and newest-first for one exact-name agent.
 
     This read-only tool matches case-sensitively and returns metadata only.
     """
@@ -80,10 +80,10 @@ def list_agent_sessions(agent_name: str, max_results: int = 25) -> dict:
 
 
 @MCP.tool()
-def get_agent_session_messages(
+def get_aidp_agent_session_messages(
     agent_name: str, session_id: str, max_characters: int = 12000
 ) -> dict:
-    """Read bounded messages for an exact-name agent session when authorized.
+    """AI DP agent messages: read an exact-name session when authorized.
 
     This read-only tool matches agent names case-sensitively. Messages can
     contain application data, like job-run output; text is bounded and only
@@ -95,10 +95,10 @@ def get_agent_session_messages(
 
 
 @MCP.tool()
-def get_agent_trace(
+def get_aidp_agent_trace(
     agent_name: str, session_id: str, trace_key: str, max_spans: int = 100
 ) -> dict:
-    """Read bounded trace spans for one exact-name agent session.
+    """AI DP agent trace: read bounded spans for one exact-name session.
 
     This read-only tool matches agent names case-sensitively. Prompt-bearing
     span attributes are never returned; only bounded error-event messages are.

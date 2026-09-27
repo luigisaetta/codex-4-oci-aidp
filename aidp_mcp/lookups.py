@@ -11,6 +11,8 @@ import oci
 
 from aidp_common.connection import AidpError, validate_resource_key
 
+SDK_PAGE_SIZE = 100
+
 
 @dataclass(frozen=True)
 class JobTarget:

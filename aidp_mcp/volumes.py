@@ -10,7 +10,12 @@ from pathlib import PurePosixPath
 import oci
 
 from aidp_common.connection import AidpError
-from aidp_mcp.lookups import _sorted_named_resources, next_page, resource_key
+from aidp_mcp.lookups import (
+    SDK_PAGE_SIZE,
+    _sorted_named_resources,
+    next_page,
+    resource_key,
+)
 from aidp_mcp.targets import catalog_clients
 from aidp_mcp.validation import (
     _validate_result_limit,
@@ -345,7 +350,7 @@ def _list_volume_file_entries(
                 volume_key,
                 current_path,
                 is_recursive=True,
-                limit=max_results - len(entries_by_path),
+                limit=min(SDK_PAGE_SIZE, max_results - len(entries_by_path)),
                 page=page,
                 sort_by="displayName",
                 sort_order="ASC",

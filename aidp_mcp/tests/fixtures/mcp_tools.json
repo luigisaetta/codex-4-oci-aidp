@@ -57,7 +57,7 @@
     "name": "list_notebooks"
   },
   {
-    "description": "List bounded, read-only metadata for configured-workspace agents.\n\nThe optional name filter is a case-insensitive substring match. No agent\ncode or deployment is changed.",
+    "description": "AI DP agent list: bounded, read-only configured-workspace metadata.\n\nThe optional name filter is a case-insensitive substring match. No agent\ncode or deployment is changed.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -79,10 +79,10 @@
       },
       "type": "object"
     },
-    "name": "list_agents"
+    "name": "list_aidp_agents"
   },
   {
-    "description": "Read one exact-name agent and its bounded deployment metadata.\n\nThis read-only tool matches the agent display name exactly and\ncase-sensitively; it does not change the agent or its deployments.",
+    "description": "AI DP agent read: one exact-name agent and bounded deployment metadata.\n\nThis read-only tool matches the agent display name exactly and\ncase-sensitively; it does not change the agent or its deployments.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -95,10 +95,10 @@
       ],
       "type": "object"
     },
-    "name": "get_agent"
+    "name": "get_aidp_agent"
   },
   {
-    "description": "List bounded, newest-first sessions for one exact-name agent.\n\nThis read-only tool matches case-sensitively and returns metadata only.",
+    "description": "AI DP agent sessions: bounded and newest-first for one exact-name agent.\n\nThis read-only tool matches case-sensitively and returns metadata only.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -115,10 +115,10 @@
       ],
       "type": "object"
     },
-    "name": "list_agent_sessions"
+    "name": "list_aidp_agent_sessions"
   },
   {
-    "description": "Read bounded messages for an exact-name agent session when authorized.\n\nThis read-only tool matches agent names case-sensitively. Messages can\ncontain application data, like job-run output; text is bounded and only\nmetadata keys, never metadata values, are returned.",
+    "description": "AI DP agent messages: read an exact-name session when authorized.\n\nThis read-only tool matches agent names case-sensitively. Messages can\ncontain application data, like job-run output; text is bounded and only\nmetadata keys, never metadata values, are returned.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -139,10 +139,10 @@
       ],
       "type": "object"
     },
-    "name": "get_agent_session_messages"
+    "name": "get_aidp_agent_session_messages"
   },
   {
-    "description": "Read bounded trace spans for one exact-name agent session.\n\nThis read-only tool matches agent names case-sensitively. Prompt-bearing\nspan attributes are never returned; only bounded error-event messages are.",
+    "description": "AI DP agent trace: read bounded spans for one exact-name session.\n\nThis read-only tool matches agent names case-sensitively. Prompt-bearing\nspan attributes are never returned; only bounded error-event messages are.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -167,7 +167,7 @@
       ],
       "type": "object"
     },
-    "name": "get_agent_trace"
+    "name": "get_aidp_agent_trace"
   },
   {
     "description": "List workflow jobs whose workspace notebook task uses one exact notebook.\n\n`workspace_notebook_path` must be absolute and rooted at `/Workspace`.\nThis read-only search returns sanitized job and matching-task metadata.",

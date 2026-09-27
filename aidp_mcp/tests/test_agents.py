@@ -139,6 +139,11 @@ def test_get_agent_returns_bounded_deployments(monkeypatch):
         }
     ]
     assert result["deployments_truncated"] is False
+    assert all(
+        call.kwargs["limit"] <= 100
+        for call in client.list_agents.call_args_list
+        + client.list_agent_deployments.call_args_list
+    )
 
 
 def _resolved_client(agent=None):
@@ -247,8 +252,34 @@ def test_get_agent_session_messages_bounds_text_and_hides_metadata_values(monkey
         "truncated": True,
     }
     client.list_agent_session_chat_histories.assert_called_once_with(
-        "instance", "workspace", "agent-key", "session-id", limit=1000, page=None
+        "instance", "workspace", "agent-key", "session-id", limit=100, page=None
     )
+
+
+def test_agent_client_lists_never_exceed_the_sdk_page_size(monkeypatch):
+    """Every AgentClient listing caps each remote request at 100 results."""
+    client = _resolved_client()
+    client.get_agent.return_value = SimpleNamespace(data=_agent())
+    client.list_agent_deployments.return_value = _response([])
+    client.list_agent_sessions.return_value = _response([])
+    client.list_agent_session_chat_histories.return_value = _response([])
+    monkeypatch.setattr(agents, "agent_clients", lambda _settings: _clients(client))
+
+    agents.list_agents(SimpleNamespace(), max_results=1000)
+    agents.get_agent(SimpleNamespace(), "hello")
+    agents.list_agent_sessions(SimpleNamespace(), "hello", max_results=1000)
+    agents.get_agent_session_messages(
+        SimpleNamespace(), "hello", "session-id", max_characters=100000
+    )
+
+    list_calls = (
+        client.list_agents.call_args_list
+        + client.list_agent_deployments.call_args_list
+        + client.list_agent_sessions.call_args_list
+        + client.list_agent_session_chat_histories.call_args_list
+    )
+    assert list_calls
+    assert all(call.kwargs["limit"] <= 100 for call in list_calls)
 
 
 @pytest.mark.parametrize("session_id, trace_key", [("bad/path", "trace"), ("ok", "..")])

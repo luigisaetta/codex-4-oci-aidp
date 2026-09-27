@@ -12,7 +12,7 @@ import oci
 from aidp_python_client.aidataplatform_dp import models
 
 from aidp_common.connection import AidpError, validate_resource_key
-from aidp_mcp.lookups import find_cluster, next_page, resource_key
+from aidp_mcp.lookups import SDK_PAGE_SIZE, find_cluster, next_page, resource_key
 from aidp_mcp.safety import require_confirmation, should_apply
 from aidp_mcp.targets import workspace_clients
 from aidp_mcp.validation import (
@@ -57,7 +57,7 @@ def find_notebook_jobs(settings, workspace_notebook_path, max_results=100):
             response = workflows.list_jobs(
                 instance_id,
                 workspace_key,
-                limit=max_results - len(matches),
+                limit=min(SDK_PAGE_SIZE, max_results - len(matches)),
                 page=page,
             )
             for summary in getattr(response.data, "items", None) or []:

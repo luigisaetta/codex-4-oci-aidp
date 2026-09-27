@@ -26,7 +26,8 @@ Scope:
 
 1. A new domain module `aidp_mcp/agents.py` with read-only observation
    operations, exposed as MCP tools.
-2. A guarded `invoke_agent` tool that sends one message to a deployed agent's
+2. A guarded `invoke_aidp_agent` tool that sends one message to a deployed
+   agent's
    `/chat` endpoint.
 3. Tests, documentation, and an intentional update of the MCP tool snapshot.
 
@@ -136,11 +137,11 @@ SDK objects.
 
 | Tool | Parameters | Returns |
 | --- | --- | --- |
-| `list_agents` | `name_contains: str \| None = None`, `max_results: int = 50` | Agents with `name`, `key`, `type`, `lifecycle_state`, `lifecycle_details`, `deployment_mode`, `uri_state`, `entry_file_path`, `dependencies_file_path`, `path_info`, and whether a compute is attached; plus `truncated` |
-| `get_agent` | `agent_name: str` | The same agent fields, plus its deployments: `key`, `lifecycle_state`, `deployment_type`, `deployment_version`, `endpoint_url`, `time_created`, `time_updated` |
-| `list_agent_sessions` | `agent_name: str`, `max_results: int = 25` | Newest-first sessions: `session_id`, `display_name`, `lifecycle_state`, timestamps, `duration`, `tokens`; plus `truncated` |
-| `get_agent_session_messages` | `agent_name: str`, `session_id: str`, `max_characters: int = 12000` | Ordered messages: `role`, `time_created`, `tool_name`, and text content bounded in total by `max_characters`; `metadata` **keys only**; plus `truncated`. The docstring states that messages can contain application data and should be requested only when authorized, like `get_job_run_output` |
-| `get_agent_trace` | `agent_name: str`, `session_id: str`, `trace_key: str`, `max_spans: int = 100` | `trace_id`, total duration, and spans in start order, each with `span_name`, `kind`, `status`, duration, and **error events only** (event name and a bounded message). Span `attributes` are **not** returned, because they can contain prompts and data |
+| `list_aidp_agents` | `name_contains: str \| None = None`, `max_results: int = 50` | Agents with `name`, `key`, `type`, `lifecycle_state`, `lifecycle_details`, `deployment_mode`, `uri_state`, `entry_file_path`, `dependencies_file_path`, `path_info`, and whether a compute is attached; plus `truncated` |
+| `get_aidp_agent` | `agent_name: str` | The same agent fields, plus its deployments: `key`, `lifecycle_state`, `deployment_type`, `deployment_version`, `endpoint_url`, `time_created`, `time_updated` |
+| `list_aidp_agent_sessions` | `agent_name: str`, `max_results: int = 25` | Newest-first sessions: `session_id`, `display_name`, `lifecycle_state`, timestamps, `duration`, `tokens`; plus `truncated` |
+| `get_aidp_agent_session_messages` | `agent_name: str`, `session_id: str`, `max_characters: int = 12000` | Ordered messages: `role`, `time_created`, `tool_name`, and text content bounded in total by `max_characters`; `metadata` **keys only**; plus `truncated`. The docstring states that messages can contain application data and should be requested only when authorized, like `get_job_run_output` |
+| `get_aidp_agent_trace` | `agent_name: str`, `session_id: str`, `trace_key: str`, `max_spans: int = 100` | `trace_id`, total duration, and spans in start order, each with `span_name`, `kind`, `status`, duration, and **error events only** (event name and a bounded message). Span `attributes` are **not** returned, because they can contain prompts and data |
 
 Validation:
 
@@ -150,10 +151,10 @@ Validation:
   renamed public equivalent. Maximums: 1,000 results; 100,000 characters for
   messages; 1,000 spans.
 
-### `invoke_agent`
+### `invoke_aidp_agent`
 
 Signature:
-`invoke_agent(agent_name: str, message: str, *, session_key: str | None = None, timeout_seconds: int = 120, max_characters: int = 12000, confirm_invoke: bool = False)`.
+`invoke_aidp_agent(agent_name: str, message: str, *, session_key: str | None = None, timeout_seconds: int = 120, max_characters: int = 12000, confirm_invoke: bool = False)`.
 
 Safety:
 
@@ -213,13 +214,13 @@ The docstrings are what the model reads. For each new tool, state:
 * read-only or confirmation-gated;
 * exact-name matching;
 * bounds;
-* for `invoke_agent`, that a session is created and the costs involved.
+* for `invoke_aidp_agent`, that a session is created and the costs involved.
 
 ## API design and permissions
 
 * Read tools use `AgentClient` read operations. They need read access to the
   workspace's agents, sessions, and traces.
-* `invoke_agent` needs USE permission on the agent endpoint (documented). No
+* `invoke_aidp_agent` needs USE permission on the agent endpoint (documented). No
   create, update, or delete operation is introduced.
 * No new OCI or AI DP resource is created by the tools, except the session
   that the platform creates for each invocation.
@@ -236,7 +237,7 @@ Network stays blocked:
 * messages: text is bounded in total, and only metadata keys are returned;
 * traces: spans are ordered, span attributes are absent from the output, and
   only error events are kept, with bounded messages;
-* `invoke_agent`:
+* `invoke_aidp_agent`:
   * without `confirm_invoke=true` it raises before any SDK or HTTP call;
   * it fails with no active deployment or several active ones;
   * it rejects endpoints that are not https, have a non-Oracle host, or
@@ -260,19 +261,20 @@ Manual verification, explicit and recorded without OCIDs:
    UI (code mode, entry file `hello_agent.py`, dependency file
    `requirements.txt`, attached AI Compute), then deploys it.
 2. In a new Codex session:
-   * `list_agents` and `get_agent`: record the observed `path_info`,
+   * `list_aidp_agents` and `get_aidp_agent`: record the observed `path_info`,
      `entry_file_path`, `dependencies_file_path`, `deployment_mode`, and the
      deployment `lifecycle_state` and `deployment_type`;
    * `get_cluster_status` on the AI Compute name: record whether it works.
-3. `invoke_agent` with `message="Hi there"` and `confirm_invoke=true`.
+3. `invoke_aidp_agent` with `message="Hi there"` and `confirm_invoke=true`.
    * Expected text: `hello world - you said: Hi there`.
    * Record `response_keys` and where the session key was found.
-4. A second `invoke_agent` call with the returned `session_key`: record
+4. A second `invoke_aidp_agent` call with the returned `session_key`: record
    whether the session is reused.
-5. `list_agent_sessions`, `get_agent_session_messages`, and, if a trace key
-   can be found, `get_agent_trace`: record where the trace key came from.
+5. `list_aidp_agent_sessions`, `get_aidp_agent_session_messages`, and, if a
+   trace key can be found, `get_aidp_agent_trace`: record where the trace key
+   came from.
 6. Error path: deploy a variant whose `invoke()` raises. Record what
-   `invoke_agent` returns and what the messages and trace show.
+   `invoke_aidp_agent` returns and what the messages and trace show.
 
    Revert afterwards, so that the deployed agent is the correct hello world
    again.
@@ -320,3 +322,26 @@ describing the blocker in "Verification evidence".
   entries are byte-identical.
 * Manual AI DP verification remains pending. No OCI resource was created or
   modified by this step.
+
+2026-09-27, live observation and follow-up correction:
+
+* In Codex, the original MCP names `list_agents` and `get_agent` were
+  confusable with Codex built-in agent tools. The MCP adapter now exposes the
+  observation tools as `list_aidp_agents`, `get_aidp_agent`,
+  `list_aidp_agent_sessions`, `get_aidp_agent_session_messages`, and
+  `get_aidp_agent_trace`; the planned step-3 tool name is
+  `invoke_aidp_agent`.
+* AI DP live result: `AgentClient.list_agents` returned HTTP 200 with
+  `limit=100`, while `limit=500` and `limit=1000` returned HTTP 500
+  `InternalError`. A shared SDK page size of 100 is now used for all paginated
+  AgentClient lists and other domain list requests that can otherwise exceed
+  it; local result bounds remain unchanged.
+* For undeployed `hello_world`, `list_aidp_agent_sessions` returned HTTP 500
+  `InternalError` with every parameter combination tried. Re-check this after
+  deployment.
+* `hello_world` was observed as type `CODE`, lifecycle `DRAFT`, not deployed,
+  with entry file path `/Workspace/hello_world/hello_agent.py` and zero
+  deployments. No OCIDs are recorded.
+* Offline verification for this correction is recorded with the implementation
+  change. The MCP snapshot intentionally renames only the five agent tool
+  entries and their descriptions; non-agent tool entries are byte-identical.

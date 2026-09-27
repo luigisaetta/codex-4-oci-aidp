@@ -6,7 +6,7 @@ Description: Read-only AI DP agent discovery and deployment observation.
 """
 
 from aidp_common.connection import AidpError, validate_resource_key
-from aidp_mcp.lookups import next_page, resource_key
+from aidp_mcp.lookups import SDK_PAGE_SIZE, next_page, resource_key
 from aidp_mcp.targets import agent_clients
 from aidp_mcp.validation import _validate_result_limit, validate_resource_name
 
@@ -51,7 +51,7 @@ def list_agents(settings, name_contains=None, max_results=50):
                 instance_id,
                 workspace_key,
                 display_name_contains=name_contains,
-                limit=max_results - len(agents),
+                limit=min(SDK_PAGE_SIZE, max_results - len(agents)),
                 page=page,
             )
             items = _collection_items(response)
@@ -129,7 +129,7 @@ def list_agent_sessions(settings, agent_name, max_results=25):
                 instance_id,
                 workspace_key,
                 agent_key,
-                limit=max_results - len(sessions),
+                limit=min(SDK_PAGE_SIZE, max_results - len(sessions)),
                 page=page,
                 sort_by="timeCreated",
                 sort_order="DESC",
@@ -185,7 +185,7 @@ def get_agent_session_messages(settings, agent_name, session_id, max_characters=
                 workspace_key,
                 agent_key,
                 session_id,
-                limit=MAX_AGENT_SESSIONS,
+                limit=min(SDK_PAGE_SIZE, MAX_AGENT_MESSAGES - len(messages)),
                 page=page,
             )
             items = _collection_items(response)
@@ -264,7 +264,7 @@ def _find_agent(client, instance_id, workspace_key, agent_name):
             instance_id,
             workspace_key,
             display_name=agent_name,
-            limit=MAX_AGENT_RESULTS,
+            limit=min(SDK_PAGE_SIZE, 2 - len(matches)),
             page=page,
         )
         for agent in _collection_items(response):
@@ -292,7 +292,7 @@ def _list_deployments(client, instance_id, workspace_key, agent_key):
             instance_id,
             workspace_key,
             agent_key,
-            limit=MAX_AGENT_DEPLOYMENTS - len(deployments),
+            limit=min(SDK_PAGE_SIZE, MAX_AGENT_DEPLOYMENTS - len(deployments)),
             page=page,
         )
         items = _collection_items(response)

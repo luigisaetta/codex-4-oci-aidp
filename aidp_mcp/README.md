@@ -68,15 +68,13 @@ file.
 ### Code layout
 
 `server.py` is the MCP adapter: it loads validated settings for each tool
-request and calls the Python domain API directly. `notebooks.py`, `jobs.py`,
-`clusters.py`, and `volumes.py` are those domain modules; each receives
+request and calls the Python domain API directly. `agents.py`, `notebooks.py`,
+`jobs.py`, `clusters.py`, and `volumes.py` are those domain modules; each receives
 validated settings explicitly. `config.py`, `local_files.py`, `targets.py`,
 `lookups.py`, `validation.py`, and `safety.py` are shared modules, with
 `safety.py` centralizing explicit mutation confirmation. Dependencies flow
 from `server.py` to domain modules, then shared modules, and finally
-`aidp_common`; domain modules must not depend on one another. A future
-`agents.py` belongs beside the existing domain modules, with its MCP tools
-added in `server.py`.
+`aidp_common`; domain modules must not depend on one another.
 
 ## Tools
 
@@ -84,6 +82,11 @@ added in `server.py`.
 | --- | --- | --- |
 | `upload_notebook` | Mutation, plan by default | Validates an allowed-root local `.ipynb` file and plans or uploads it to an explicit workspace-relative path. Set `apply=true` to mutate; replacing an existing notebook also requires `overwrite=true`. |
 | `list_notebooks` | Read-only | Lists bounded, non-recursive notebook metadata in an explicit `/Workspace` directory, with an optional name substring filter. |
+| `list_aidp_agents` | Read-only | Lists bounded metadata for agents in the configured workspace. |
+| `get_aidp_agent` | Read-only | Retrieves one exact-name agent and bounded deployment metadata. |
+| `list_aidp_agent_sessions` | Read-only | Lists bounded, newest-first sessions for one exact-name agent. |
+| `get_aidp_agent_session_messages` | Read-only | Retrieves bounded session messages for an exact-name agent; messages can contain application data. |
+| `get_aidp_agent_trace` | Read-only | Retrieves bounded, sanitized trace spans for an exact-name agent session. |
 | `find_notebook_jobs` | Read-only | Finds workflow jobs in the configured workspace that use one exact `/Workspace/...ipynb` notebook. |
 | `list_catalog_volumes` | Read-only | Lists visible schemas and volumes in one exact catalog. By default, only external Object Storage volumes are returned. |
 | `list_volume_files` | Read-only | Returns a bounded recursive tree of folders and files below a path in one exact catalog, schema, and volume; it never reads file content. |
