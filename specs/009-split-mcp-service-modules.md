@@ -390,6 +390,17 @@ scored 10.00/10, `git diff --check` was clean, and the MCP snapshot was
 unchanged. Manual local MCP verification confirmed that the expected 12 tools
 remain registered.
 
+Step 6 — notebooks (commit `Extract MCP notebook operations`, 2026-09-27):
+moved real notebook upload planning/content access, folder creation, listing,
+and notebook helpers to `notebooks.py` (333 lines). `service.py` is 252 lines
+and now contains only imports and the `AidpWorkflowService` facade, with every
+method delegating to a domain module. The related tests moved to
+`test_notebooks.py`; content and workspace-object request patches now target
+`notebooks`, and no test patches `service`. The MCP suite collected 113 tests;
+the full suite passed 196 tests, Black was clean, Pylint scored 10.00/10,
+`git diff --check` was clean, and the MCP snapshot was unchanged. Manual local
+MCP verification confirmed that the expected 12 tools remain registered.
+
 Remote verification: pending. In an authorized new Codex session, call
 `get_cluster_status` and `list_notebooks`, then plan one notebook upload with
 `apply=false`; record only sanitized results.
