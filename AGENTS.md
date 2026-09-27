@@ -45,6 +45,11 @@ Specifications are source-controlled project artifacts, not disposable planning 
 * Do not print credentials or include them in logs, exceptions, command examples, or experiment reports.
 * Make external data transfers explicit and keep them within the authorized scope.
 
+## Skills
+
+`.agents/skills/` holds skills for developing this repository. `skills/` holds
+operational AI DP skills installed at user scope with `scripts/install_skills.sh`.
+
 ## Python environment and dependencies
 
 The Conda environment name is `codex-4-oci-aidp`. The user will create it separately; do not assume that it already exists or create it unless requested.
@@ -85,28 +90,11 @@ Description: Brief description of this file's responsibilities.
 
 ## Remote setup through APIs and OCI CLI
 
-* Prefer documented OCI SDK/API operations, OCI AI DP APIs, and OCI CLI commands that expose the required functionality. Explain the selected interface in the specification.
-* Parameterize region, compartment, resource identifiers, endpoints, authentication configuration, and other environment-specific values. Provide sanitized configuration examples.
-* Document supported authentication methods for each execution environment and the required IAM permissions. Use the least privileges needed for the specified operation.
-* Before changing remote resources, validate the target and inputs and show the intended changes. Provide a plan or dry-run mode for provisioning scripts where feasible, clearly stating what it can validate.
-* Make setup repeatable: detect existing resources, reuse or update them deliberately, and avoid duplicates on reruns. Document operations that cannot be idempotent.
-* Handle asynchronous operations, timeouts, partial failures, and service errors explicitly. Bound polling and retries; retry only when safe for the operation.
-* Log useful progress and sanitized resource references so a human can investigate failures. Record resources created by a run to support recovery and cleanup.
-* Document potential costs and cleanup steps for resource-creating experiments. Keep cleanup scoped to explicitly identified resources; never delete resources solely because their names match a broad pattern.
-* Run remote mutations only within the user's authorized scope. Do not treat credentials being available as authorization to create, delete, or reconfigure resources.
+Use the `oci-remote-operations` skill for this activity.
 
 ## Evaluation evidence
 
-For each experiment, record:
-
-* The question being tested and the linked specification and acceptance criteria.
-* The actual Codex/Astra model or tool identifiers and versions, where available; never infer an exact identifier from a display name.
-* The relevant prompts or instructions, with secrets and private data removed.
-* Local and remote environment details, dependencies, configuration, commands, and expected outputs needed to reproduce the experiment.
-* What was automated, what required human intervention, what failed, and any platform or tooling limitations.
-* Observed results, supporting sanitized logs or artifacts, and whether each conclusion was verified locally or on OCI AI DP.
-
-Separate observations from assumptions. Do not generalize from a single successful run or claim remote compatibility from mocked tests.
+Use the `record-evaluation-evidence` skill for this activity.
 
 ## Testing and verification
 

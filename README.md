@@ -67,6 +67,7 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for contributor commands.
 * [AI DP MCP workflow server](aidp_mcp/README.md): discover AI DP notebooks,
   jobs, clusters, catalogs and volumes; upload notebooks; and run managed
   single-notebook jobs through Codex.
+* [AI DP skills](skills/README.md): install operational AI DP skills for Codex.
 
 Both features reuse [aidp_common](aidp_common/README.md) for authentication,
 connection settings, SDK initialization and resource discovery.

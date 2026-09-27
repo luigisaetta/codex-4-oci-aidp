@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* 2026-09-27: Move OCI remote-operation and evaluation-evidence guidance into
+  repository-development skills.
+
 * 2026-09-27: Add the `aidp-notebook-deploy-and-run` operational skill for
   approved AI DP notebook deployment and managed-job execution.
 

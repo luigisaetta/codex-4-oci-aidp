@@ -361,3 +361,22 @@ Verified on 2026-09-27 in the `codex-4-oci-aidp` Conda environment.
 * `python -m pytest -q tests/test_skills.py` passed: 3 passed. This includes
   the MCP snapshot-contract check for every required workflow tool name.
 * `git diff --check` passed.
+
+### Section 4 implementation checks
+
+Verified on 2026-09-27 in the `codex-4-oci-aidp` Conda environment.
+
+* Moved the former `AGENTS.md` sections "Remote setup through APIs and OCI
+  CLI" and "Evaluation evidence" into the repository-scope skills
+  `.agents/skills/oci-remote-operations/` and
+  `.agents/skills/record-evaluation-evidence/`, respectively. Their rules
+  were preserved with only Markdown line wrapping.
+* Replaced the two `AGENTS.md` sections with one-line pointers and added its
+  "Skills" section, which distinguishes repository-development scope from
+  user-installed operational AI DP skills.
+* Added the operational-skills link to the root README and a Changelog entry.
+* `python /Users/lsaetta/.codex/skills/.system/skill-creator/scripts/quick_validate.py
+  .agents/skills/oci-remote-operations` and the equivalent command for
+  `record-evaluation-evidence` both passed (`Skill is valid!`).
+* `python -m pytest -q tests/test_skills.py` passed: 3 passed.
+* `git diff --check` passed.
