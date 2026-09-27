@@ -26,7 +26,7 @@ line-length = 88
 target-version = ["py311"]
 
 [tool.pytest.ini_options]
-testpaths = ["cluster_lifecycle/tests", "catalog_tree/tests", "aidp_common/tests", "aidp_mcp/tests"]
+testpaths = ["cluster_lifecycle/tests", "catalog_tree/tests", "aidp_common/tests", "aidp_mcp/tests", "tests"]
 pythonpath = [".", "cluster_lifecycle", "catalog_tree", "aidp_mcp"]
 addopts = "--strict-markers"
 

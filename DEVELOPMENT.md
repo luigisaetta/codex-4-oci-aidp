@@ -4,9 +4,9 @@ From the repository root, with the project Conda environment active:
 
 ```bash
 python -m pip install --no-deps --no-build-isolation -e .
-python -m black aidp_common aidp_mcp cluster_lifecycle catalog_tree conftest.py
-python -m black --check aidp_common aidp_mcp cluster_lifecycle catalog_tree conftest.py
-python -m pylint aidp_common aidp_common/tests/*.py aidp_mcp aidp_mcp/tests/*.py cluster_lifecycle/*.py cluster_lifecycle/tests/*.py catalog_tree/*.py catalog_tree/tests/*.py conftest.py
+python -m black aidp_common aidp_mcp cluster_lifecycle catalog_tree tests conftest.py
+python -m black --check aidp_common aidp_mcp cluster_lifecycle catalog_tree tests conftest.py
+python -m pylint aidp_common aidp_common/tests/*.py aidp_mcp aidp_mcp/tests/*.py cluster_lifecycle/*.py cluster_lifecycle/tests/*.py catalog_tree/*.py catalog_tree/tests/*.py tests/*.py conftest.py
 python -m pytest -q
 ```
 

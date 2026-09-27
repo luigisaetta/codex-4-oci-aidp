@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* 2026-09-27: Add safe user-scope AI DP skill installation, documentation, and
+  offline validation for skill metadata and installer behavior.
+
 * 2026-09-27: Remove the duplicate MCP service facade; the server now loads
   settings lazily and calls cohesive domain modules directly without changing
   the public MCP contract.

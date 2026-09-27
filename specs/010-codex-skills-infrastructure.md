@@ -311,4 +311,36 @@ Behavioral check with the real skill (manual, recorded, sanitized):
 
 ## Verification evidence
 
-Pending implementation.
+### Empirical discovery check
+
+Verified on 2026-09-27 with `codex-cli 0.155.0-alpha.16.3`.
+
+* Created the throwaway skill `aidp-discovery-probe` outside the repository at
+  `/private/tmp/aidp-discovery-probe` and linked it at
+  `$HOME/.agents/skills/aidp-discovery-probe`.
+* In a new Codex session started from `/private/tmp/aidp-discovery-check`, the
+  skill was discovered through explicit invocation as
+  `$aidp-discovery-probe`.
+* The session reported its sole purpose correctly: verifying that Codex
+  discovers user-scope skills.
+
+Result: `$HOME/.agents/skills` is the verified user-scope discovery location
+for this Codex version. The fallback check in `~/.codex/skills` was not needed.
+
+### Sections 1, 2, and 5 implementation checks
+
+Verified on 2026-09-27 in the `codex-4-oci-aidp` Conda environment.
+
+* `tests/test_skills.py` uses a temporary `--target` and a temporary source
+  skill to check dry-run behavior, first-link creation, idempotent reruns, a
+  same-named regular-directory conflict, and scoped uninstall that preserves
+  an unrelated symlink.
+* `bash -n scripts/install_skills.sh` passed.
+* `python -m black --check aidp_common aidp_mcp cluster_lifecycle
+  catalog_tree tests conftest.py` passed.
+* Pylint scored 10.00/10 for the repository Python sources and tests,
+  including `tests/test_skills.py`.
+* `python -m pytest -q` passed: 197 passed, 1 skipped. The skip is the
+  snapshot-contract check for `aidp-notebook-deploy-and-run`, which remains
+  pending implementation in section 3.
+* `git diff --check` passed.
