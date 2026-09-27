@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-27: Record sanitized live `get_aidp_agent` evidence for the
+  UI-created `hello_world` agent, including its observed workspace-root
+  `path_info`.
+
 * 2026-09-27: Rename AI DP agent MCP tools with an `aidp` qualifier to avoid
   collisions with Codex built-in agent tools, and cap all paginated SDK list
   requests at 100 while retaining documented local result bounds.

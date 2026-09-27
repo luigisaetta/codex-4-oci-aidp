@@ -345,3 +345,15 @@ describing the blocker in "Verification evidence".
 * Offline verification for this correction is recorded with the implementation
   change. The MCP snapshot intentionally renames only the five agent tool
   entries and their descriptions; non-agent tool entries are byte-identical.
+
+2026-09-27, live `get_aidp_agent` observation for the UI-created
+`hello_world` agent:
+
+* The read-only `get_aidp_agent` MCP tool reported type `CODE`, lifecycle
+  `DRAFT`, and deployment mode `NOT_DEPLOYED`.
+* `entry_file_path` was `/Workspace/hello_world/hello_agent.py` and
+  `dependencies_file_path` was `/Workspace/hello_world/requirements.txt`.
+  `path_info` was `/Workspace`, the workspace root, although the SDK describes
+  that field as a volume path.
+* No compute was attached and the deployment list was empty. No keys or OCIDs
+  are recorded.
