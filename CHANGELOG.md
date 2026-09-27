@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* 2026-09-27: Add a guarded local-development-to-AI-DP hero illustration to
+  the README.
+
 * 2026-09-27: Move OCI remote-operation and evaluation-evidence guidance into
   repository-development skills.
 
