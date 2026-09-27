@@ -369,3 +369,14 @@ describing the blocker in "Verification evidence".
   `invoke_aidp_agent`; existing entries are byte-identical.
 * Manual AI DP invocation remains pending. It was not run during implementation
   because it creates a session and can consume compute or trigger agent tools.
+
+2026-09-27, execution-plan step 4:
+
+* Updated `aidp_mcp/README.md` with the confirmation-gated
+  `invoke_aidp_agent` tool, its session and cost boundary, and the
+  `agents.py` responsibility for OCI-signed invocation.
+* Updated `CHANGELOG.md` under `Unreleased`. The final MCP snapshot contains
+  18 tools; `invoke_aidp_agent` is the only added entry and pre-existing
+  snapshot entries remain byte-identical.
+* The documented manual AI DP checks remain pending: a human must deploy the
+  hello-world agent and explicitly authorize each session-creating invocation.

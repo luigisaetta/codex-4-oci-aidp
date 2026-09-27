@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* 2026-09-27: Add confirmation-gated `invoke_aidp_agent` MCP support for
+  OCI-signed, bounded requests to an exact agent's sole active deployment.
+
 * 2026-09-27: Record sanitized live `get_aidp_agent` evidence for the
   UI-created `hello_world` agent, including its observed workspace-root
   `path_info`.
