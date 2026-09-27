@@ -338,6 +338,24 @@ describing the blocker in "Verification evidence".
 
 ## Verification evidence
 
+2026-09-27, manual verification step 1:
+
+* The first plan-only attempt at `upload_aidp_agent_code` failed before it
+  could compare files: `read_workspace_file` sent
+  `accept: application/octet-stream`, and AI DP returned HTTP 406
+  `NotAcceptable` for both an existing file and a missing file. Therefore the
+  upload plan could not be computed.
+* Live read-only verification found that `accept: */*` returns HTTP 200 with
+  raw bytes for an existing file and HTTP 404 for a missing file;
+  `application/x-yaml` behaves the same. The specification did not prescribe
+  the read request's `Accept` header.
+* Updated `read_workspace_file` to send `accept: */*` and added an offline
+  regression test asserting the exact header. This confirms the request
+  header compatibility finding only; no upload or other remote mutation was
+  performed.
+* Local verification after the fix: `black --check .` was clean, the
+  configured Pylint command scored 10.00/10, and `pytest -q` passed 255 tests.
+
 2026-09-27, execution-plan step 1:
 
 * Implemented `workspace_files.py` with a dedicated, request-scoped

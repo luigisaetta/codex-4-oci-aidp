@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-27: Use `Accept: */*` for AI DP workspace-file reads, avoiding the
+  service's HTTP 406 response to `application/octet-stream` and restoring
+  upload-plan comparisons.
+
 * 2026-09-27: Refactor internal AI DP agent MCP modules into observation,
   invocation, code-definition, and shared lookup responsibilities without
   changing the public MCP contract.

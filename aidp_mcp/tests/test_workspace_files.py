@@ -30,6 +30,7 @@ def test_read_workspace_file_uses_encoded_final_path_and_raw_bytes():
     assert arguments["resource_path"].endswith(
         "/objects/%2FWorkspace%2Fagent%2Fhello.py"
     )
+    assert arguments["header_params"] == {"accept": "*/*"}
     assert arguments["response_type"] == "stream"
 
 

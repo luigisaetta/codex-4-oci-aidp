@@ -97,7 +97,7 @@ def read_workspace_file(client, instance_id, workspace_key, path):
                 "aiDataPlatformId": instance_id,
                 "workspaceKey": workspace_key,
             },
-            header_params={"accept": "application/octet-stream"},
+            header_params={"accept": "*/*"},
             response_type="stream",
         )
     except oci.exceptions.ServiceError as exc:
