@@ -109,6 +109,34 @@ def get_aidp_agent_trace(
 
 
 @MCP.tool()
+def invoke_aidp_agent(
+    agent_name: str,
+    message: str,
+    *,
+    session_key: str | None = None,
+    timeout_seconds: int = 120,
+    max_characters: int = 12000,
+    confirm_invoke: bool = False,
+) -> dict:
+    """Invoke one exact-name deployed agent; confirmation is required.
+
+    This creates a platform session and can consume compute or trigger agent
+    tools with side effects. Set `confirm_invoke=true` only when authorized.
+    The agent name is exact and case-sensitive; the message is limited to
+    20,000 characters and returned text to 100,000 characters.
+    """
+    return agents.invoke_agent(
+        _settings(),
+        agent_name,
+        message,
+        session_key=session_key,
+        timeout_seconds=timeout_seconds,
+        max_characters=max_characters,
+        confirm_invoke=confirm_invoke,
+    )
+
+
+@MCP.tool()
 def find_notebook_jobs(workspace_notebook_path: str, max_results: int = 100) -> dict:
     """List workflow jobs whose workspace notebook task uses one exact notebook.
 

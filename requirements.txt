@@ -5,3 +5,5 @@
 oci==2.165.1
 python-dotenv==1.2.3
 fastmcp==3.4.5
+# OCI agent-endpoint invocation: https://docs.oracle.com/en/cloud/paas/ai-data-platform/aidug/invoke-deployed-agent.html
+requests==2.34.2

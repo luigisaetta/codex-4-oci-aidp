@@ -13,6 +13,8 @@ dependencies = [
     "oci==2.165.1",
     "python-dotenv==1.2.3",
     "fastmcp==3.4.5",
+    # OCI agent-endpoint invocation uses OCI request signing with requests.
+    "requests==2.34.2",
 ]
 
 [project.scripts]

@@ -170,6 +170,49 @@
     "name": "get_aidp_agent_trace"
   },
   {
+    "description": "Invoke one exact-name deployed agent; confirmation is required.\n\nThis creates a platform session and can consume compute or trigger agent\ntools with side effects. Set `confirm_invoke=true` only when authorized.\nThe agent name is exact and case-sensitive; the message is limited to\n20,000 characters and returned text to 100,000 characters.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_name": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "session_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "timeout_seconds": {
+          "default": 120,
+          "type": "integer"
+        },
+        "max_characters": {
+          "default": 12000,
+          "type": "integer"
+        },
+        "confirm_invoke": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent_name",
+        "message"
+      ],
+      "type": "object"
+    },
+    "name": "invoke_aidp_agent"
+  },
+  {
     "description": "List workflow jobs whose workspace notebook task uses one exact notebook.\n\n`workspace_notebook_path` must be absolute and rooted at `/Workspace`.\nThis read-only search returns sanitized job and matching-task metadata.",
     "inputSchema": {
       "additionalProperties": false,

@@ -357,3 +357,15 @@ describing the blocker in "Verification evidence".
   that field as a volume path.
 * No compute was attached and the deployment list was empty. No keys or OCIDs
   are recorded.
+
+2026-09-27, execution-plan step 3:
+
+* Re-verified Oracle's deployed-agent invocation and deployment documentation.
+  It documents OCI request signing with `requests`, a non-streaming chat body,
+  an endpoint-specific `/chat` path, and at least USE permission on the agent
+  endpoint.
+* Offline verification passed: 222 tests, Black clean, Pylint 10.00/10, and
+  `git diff --check` clean. The MCP contract snapshot intentionally adds only
+  `invoke_aidp_agent`; existing entries are byte-identical.
+* Manual AI DP invocation remains pending. It was not run during implementation
+  because it creates a session and can consume compute or trigger agent tools.
