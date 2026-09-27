@@ -187,6 +187,67 @@ separate commit so reviewers can distinguish them:
 * Specification 007: add a note that its two residual findings are resolved
   by this specification.
 
+## Execution plan (authoritative)
+
+This plan supersedes any earlier step list for this specification. The
+follow-up fixes and the MCP snapshot fixture are already committed
+(`8b961c7`), and step 0 (restoring all code to `service.py`) is committed
+(`a1cd4e8`). Execute the remaining work in this order, one commit per step.
+
+Shared modules first, so that domain modules never need to copy helpers:
+
+1. `validation.py` and `lookups.py`, with the contents listed in "Target
+   module layout".
+2. `config.py`, `local_files.py`, and `targets.py`, with the contents listed
+   in "Target module layout".
+
+Then the domain modules, which import helpers only from the shared modules:
+
+3. `volumes.py`
+4. `clusters.py`
+5. `jobs.py`
+6. `notebooks.py`
+
+Final step:
+
+7. Cleanup:
+   * `service.py` contains only the `AidpWorkflowService` facade;
+   * re-add the fresh-interpreter import test;
+   * remove `max-module-lines` and `min-similarity-lines` from
+     `pyproject.toml` and fix any duplication or length findings instead of
+     suppressing them;
+   * update `aidp_mcp/README.md` "Code layout" and `CHANGELOG.md`.
+
+Rules that apply to every step:
+
+* **Real code only.** Move the actual implementation into each module. A
+  module must never only re-import or delegate to `service.py`, and nothing
+  except `server.py` and tests may import `service.py`.
+* **One definition per helper.** Each function exists in exactly one module.
+  Temporary copies are not allowed.
+* **Tests move with the code.** Move each moved function's tests into the
+  mirrored test file (for example `test_validation.py`). Patch the module
+  where each name is used; do not use import aliases.
+* **Green at every commit:**
+  * the full pytest suite passes;
+  * the MCP snapshot fixture is unchanged;
+  * Black is clean;
+  * Pylint scores 10.00/10 with no new disables, including inline ones. For
+    example, rename a local variable that shadows a module, and make trailing
+    parameters keyword-only instead of disabling
+    `too-many-positional-arguments`.
+* **Evidence per step.** After each commit, add one short entry to
+  "Verification evidence": the step, the commit, the line counts of
+  `service.py` and of the new modules, and the test counts.
+* **Finish the step, then commit.** Unfinished work within a step, such as
+  tests not yet moved or patch targets not yet updated, is not a reason to
+  stop. Complete it, then commit. Never discard or reset working changes, and
+  never reset this specification file.
+* **Stop only on a real blocker.** A blocker is a problem that cannot be
+  solved within these rules, for example an unavoidable import cycle. In that
+  case, stop without adding shims or suppressions, keep the uncommitted work
+  in the tree, and describe the blocker in "Verification evidence".
+
 ## API design and permissions
 
 No OCI or AI DP operation, permission, request, or payload changes. The
