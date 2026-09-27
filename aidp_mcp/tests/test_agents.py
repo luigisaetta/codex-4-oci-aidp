@@ -524,6 +524,29 @@ def test_invoke_agent_non_success_status_has_bounded_sanitized_excerpt(monkeypat
     assert message.endswith("x" * 1000)
 
 
+def test_invoke_agent_non_success_status_redacts_ocids(monkeypatch):
+    """An HTTP failure replaces an OCI resource identifier before returning it."""
+    client = _invoke_client([_deployment()])
+    ocid = "ocid1.agent.oc1.eu-frankfurt-1.aaaaaaaexampleidentifier"
+    response = Mock(status_code=503, text=f"Agent failure for {ocid}")
+    monkeypatch.setattr(agents, "agent_clients", lambda _settings: _clients(client))
+    monkeypatch.setattr(agents, "load_auth", Mock(return_value=({}, {"signer": "s"})))
+    monkeypatch.setattr(agents, "_post_agent_message", Mock(return_value=response))
+
+    with pytest.raises(AidpError) as error:
+        agents.invoke_agent(SimpleNamespace(), "hello", "Hi there", confirm_invoke=True)
+
+    assert "Agent failure for <ocid>" in str(error.value)
+    assert ocid not in str(error.value)
+
+
+def test_response_excerpt_without_ocids_is_unchanged():
+    """A non-OCID error excerpt keeps its original text."""
+    response = SimpleNamespace(text="The deployment cannot accept this message.")
+
+    assert getattr(agents, "_response_excerpt")(response) == response.text
+
+
 def test_invoke_agent_timeout_does_not_retry(monkeypatch):
     """Timeouts are actionable and the HTTP session receives one request only."""
     session = Mock()

@@ -118,13 +118,14 @@ def invoke_aidp_agent(
     max_characters: int = 12000,
     confirm_invoke: bool = False,
 ) -> dict:
-    """Invoke one exact-name deployed agent; confirmation is required.
-
-    This creates a platform session and can consume compute or trigger agent
-    tools with side effects. Set `confirm_invoke=true` only when authorized.
-    The agent name is exact and case-sensitive; the message is limited to
-    20,000 characters and returned text to 100,000 characters.
-    """
+    (
+        "AI DP agent invoke: send one message to an exact-name deployed agent; "
+        "confirmation is required.\n\n"
+        "This creates a platform session and can consume compute or trigger agent\n"
+        "tools with side effects. Set `confirm_invoke=true` only when authorized.\n"
+        "The agent name is exact and case-sensitive; the message is limited to\n"
+        "20,000 characters and returned text to 100,000 characters."
+    )
     return agents.invoke_agent(
         _settings(),
         agent_name,

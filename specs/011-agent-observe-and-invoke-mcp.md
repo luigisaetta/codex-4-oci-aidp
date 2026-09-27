@@ -380,3 +380,14 @@ describing the blocker in "Verification evidence".
   snapshot entries remain byte-identical.
 * The documented manual AI DP checks remain pending: a human must deploy the
   hello-world agent and explicitly authorize each session-creating invocation.
+
+2026-09-27, invocation-excerpt redaction follow-up:
+
+* Offline tests confirm that a non-2xx invocation excerpt replaces a matching
+  OCID with `<ocid>` before applying its 1,000-character bound, while an
+  excerpt without an OCID is unchanged.
+* The `invoke_aidp_agent` tool description now starts with `AI DP agent`, like
+  the other agent tools. The MCP snapshot was intentionally updated only for
+  that description; its schema and all other entries are unchanged.
+* No AI DP invocation was made for this follow-up; the result is locally
+  verified with mocked SDK and HTTP clients.

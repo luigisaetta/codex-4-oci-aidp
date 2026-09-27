@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-27: Redact OCIDs from non-success AI DP agent invocation excerpts and
+  make the `invoke_aidp_agent` MCP description consistent with other agent
+  tools.
+
 * 2026-09-27: Add confirmation-gated `invoke_aidp_agent` MCP support for
   OCI-signed, bounded requests to an exact agent's sole active deployment.
 

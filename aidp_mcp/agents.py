@@ -5,6 +5,7 @@ License: MIT
 Description: Read-only AI DP agent discovery and deployment observation.
 """
 
+import re
 from urllib.parse import urlparse
 
 import requests
@@ -25,6 +26,9 @@ MAX_ERROR_EVENT_MESSAGE_CHARACTERS = 1000
 MAX_AGENT_MESSAGE_CHARACTERS = 20000
 MAX_INVOKE_TIMEOUT_SECONDS = 600
 MAX_ERROR_RESPONSE_CHARACTERS = 1000
+OCID_PATTERN = re.compile(
+    r"ocid1\.[a-z0-9_-]+\.[a-z0-9_-]*\.[a-z0-9_-]*\.[A-Za-z0-9._-]+"
+)
 
 
 def list_agents(settings, name_contains=None, max_results=50):
@@ -498,9 +502,11 @@ def _post_agent_message(endpoint, signer, body, timeout_seconds):
 
 
 def _response_excerpt(response):
-    """Return a bounded response body excerpt without request details."""
+    """Return a bounded response body excerpt without request details or OCIDs."""
     text = getattr(response, "text", "")
-    return text[:MAX_ERROR_RESPONSE_CHARACTERS] if isinstance(text, str) else ""
+    if not isinstance(text, str):
+        return ""
+    return OCID_PATTERN.sub("<ocid>", text)[:MAX_ERROR_RESPONSE_CHARACTERS]
 
 
 def _json_response(response):
