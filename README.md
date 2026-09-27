@@ -1,4 +1,4 @@
-# codex-4-oci-aidp
+# Codex for OCI AI Data Platform
 
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Black](https://img.shields.io/badge/code%20style-black-000000)
