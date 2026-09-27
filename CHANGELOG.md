@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-27: Require absolute MCP upload paths when multiple allowed local
+  roots are configured, preventing a relative path from silently selecting a
+  same-named notebook in the server repository.
+
 * 2026-09-27: Keep AI DP MCP sessions alive after invalid local settings, make
   the launcher independent of the caller working directory, and allow
   operator-configured upload roots. Upload plans now include `local_root`

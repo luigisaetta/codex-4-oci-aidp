@@ -7,7 +7,7 @@ Description: Validated AI DP notebook upload and single-task workflow operations
 
 # This deliberately keeps the MCP service's cohesive validation and response
 # boundary in one module; its supported operation set exceeds Pylint's default.
-# pylint: disable=too-many-lines,duplicate-code
+# pylint: disable=too-many-lines
 
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
@@ -94,7 +94,7 @@ def _clear_target_cache_entry(key):
 
 
 @dataclass(frozen=True)
-class Target:
+class JobTarget:
     """Resolved AI DP instance, workspace, and cluster identifiers."""
 
     instance_id: str
@@ -183,9 +183,16 @@ def validate_local_path(local_path, roots):
         tuple[Path, Path]: Canonical candidate path and its matching root.
 
     Raises:
-        AidpError: The candidate is outside every allowed root.
+        AidpError: The candidate is relative with multiple roots or is outside
+            every allowed root.
     """
-    candidate = Path(local_path).expanduser().resolve()
+    supplied_path = Path(local_path).expanduser()
+    if len(roots) > 1 and not supplied_path.is_absolute():
+        raise AidpError(
+            "Local notebook path must be absolute when multiple "
+            "AIDP_ALLOWED_ROOTS are configured."
+        )
+    candidate = supplied_path.resolve()
     for root in roots:
         try:
             candidate.relative_to(root)
@@ -553,7 +560,7 @@ def find_cluster(clusters, instance_id, workspace_key, cluster_name):
         cluster_name: Exact cluster display name.
 
     Returns:
-        Target: Resolved cluster target.
+        JobTarget: Resolved cluster target.
 
     Raises:
         AidpError: The cluster is absent, ambiguous, or not active.
@@ -574,7 +581,7 @@ def find_cluster(clusters, instance_id, workspace_key, cluster_name):
     cluster = clusters.get_cluster(instance_id, workspace_key, key).data
     if getattr(cluster, "state", None) != "ACTIVE":
         raise AidpError("Selected cluster must be ACTIVE before a job run.")
-    return Target(instance_id, workspace_key, key, cluster_name)
+    return JobTarget(instance_id, workspace_key, key, cluster_name)
 
 
 def find_cluster_status(clusters, instance_id, workspace_key, cluster_name):
@@ -795,6 +802,21 @@ def _resolve_target(
         return target, key, False
 
 
+def _cluster_transition_states(action):
+    """Return the desired, origin, and transition states for one action.
+
+    Args:
+        action: Previously validated lifecycle action.
+
+    Returns:
+        tuple[str, str, str]: Desired state, stable origin, and transition state.
+    """
+    return {
+        "start": ("ACTIVE", "STOPPED", "STARTING"),
+        "stop": ("STOPPED", "ACTIVE", "STOPPING"),
+    }[action]
+
+
 class AidpWorkflowService:
     """Perform scoped notebook and workflow operations through typed SDK clients."""
 
@@ -886,26 +908,15 @@ class AidpWorkflowService:
                 resources,
                 need_workspace=False,
             )
-            catalogs = managed_client(
-                resources,
-                CatalogClient,
-                config,
-                workbench_options,
-                preserve_timestamps=True,
-            )
-            schemas = managed_client(
-                resources,
-                SchemaClient,
-                config,
-                workbench_options,
-                preserve_timestamps=True,
-            )
-            volumes = managed_client(
-                resources,
-                VolumeClient,
-                config,
-                workbench_options,
-                preserve_timestamps=True,
+            catalogs, schemas, volumes = (
+                managed_client(
+                    resources,
+                    client_class,
+                    config,
+                    workbench_options,
+                    preserve_timestamps=True,
+                )
+                for client_class in (CatalogClient, SchemaClient, VolumeClient)
             )
             yield target.instance_id, catalogs, schemas, volumes
         except oci.exceptions.ServiceError as exc:
@@ -1562,11 +1573,7 @@ class AidpWorkflowService:
             )
             cluster = response.data
             state = getattr(cluster, "state", None)
-            desired, origin, transition = (
-                ("ACTIVE", "STOPPED", "STARTING")
-                if action == "start"
-                else ("STOPPED", "ACTIVE", "STOPPING")
-            )
+            desired, origin, transition = _cluster_transition_states(action)
             if state == desired:
                 return _cluster_lifecycle_response(action, "already_desired", cluster)
             if state not in (origin, transition):

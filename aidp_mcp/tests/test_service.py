@@ -82,6 +82,21 @@ def test_validate_local_notebook_accepts_second_configured_root(tmp_path):
     assert matching_root == second
 
 
+def test_validate_local_notebook_rejects_ambiguous_relative_path(tmp_path, monkeypatch):
+    """Two roots cannot silently select the server-root copy of one notebook."""
+    server_root = tmp_path / "server-repository"
+    extra_root = tmp_path / "other-project"
+    relative_path = "notebooks/example.ipynb"
+    for root in (server_root, extra_root):
+        notebook = root / relative_path
+        notebook.parent.mkdir(parents=True)
+        notebook.write_text('{"nbformat": 4}', encoding="utf-8")
+    monkeypatch.chdir(server_root)
+
+    with pytest.raises(AidpError, match="must be absolute"):
+        service.validate_local_notebook(relative_path, (server_root, extra_root))
+
+
 def test_validate_local_path_rejects_symlink_that_escapes_allowed_root(tmp_path):
     """Path resolution prevents an allowed-root symlink from exposing another file."""
     root = tmp_path / "allowed"

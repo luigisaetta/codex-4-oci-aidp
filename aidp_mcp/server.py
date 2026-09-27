@@ -1,6 +1,6 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-16
+Date last modified: 2026-09-27
 License: MIT
 Description: Stdio MCP server exposing scoped AI DP notebook, cluster, and volume tools.
 """
@@ -21,11 +21,13 @@ def _service():
 def upload_notebook(
     local_path: str, workspace_path: str, overwrite: bool = False, apply: bool = False
 ) -> dict:
-    """Plan or upload a local repository notebook to an AI DP workspace.
+    """Plan or upload a local notebook from an allowed root to AI DP.
 
     `workspace_path` is relative to the selected workspace root. `apply=false`
     is read-only. `apply=true` creates or replaces content only when
-    overwrite is explicitly true for an existing notebook.
+    overwrite is explicitly true for an existing notebook. When more than one
+    `AIDP_ALLOWED_ROOTS` directory is configured, `local_path` must be
+    absolute so the server does not resolve it against its own repository.
     """
     return _service().upload_notebook(local_path, workspace_path, overwrite, apply)
 

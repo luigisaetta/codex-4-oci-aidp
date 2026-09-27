@@ -49,6 +49,9 @@ MCP tool from reading broadly scoped local configuration or key material.
 The setting is operator configuration in `.env` or the process environment,
 not an `upload_notebook` parameter. A model therefore cannot expand its own
 local-file access. Symbolic links are resolved before the containment check.
+When two or more roots are configured, provide an absolute `local_path` to
+`upload_notebook`; relative paths are rejected so they cannot resolve against
+the server repository's working directory.
 
 ## Tools
 

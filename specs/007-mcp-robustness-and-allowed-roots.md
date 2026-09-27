@@ -112,6 +112,12 @@ Behavior:
   allowed root is `PROJECT_ROOT`, which is the current behavior.
 * Split on `os.pathsep`, expand `~`, and resolve each entry with
   `Path.resolve()`. Ignore empty entries.
+* When two or more allowed roots are configured, require an absolute
+  `local_path`. A relative path would otherwise resolve from the server's
+  repository root after launcher startup and could silently select a notebook
+  from a different allowed project. Raise an `AidpError` that asks for an
+  absolute path without listing configured roots. A `~/...` input remains
+  valid because expansion makes it absolute before this check.
 * Reject the whole configuration with an `AidpError` if an entry:
   * does not exist or is not a directory; or
   * is the filesystem root, the user's home directory, or an ancestor of the
@@ -187,6 +193,9 @@ Allowed roots:
 * Two configured roots: a notebook in the second root is accepted;
   `local_path` is relative to that root and `local_root` is its directory
   name.
+* When the same relative notebook path exists in the server repository and a
+  second configured root, the relative input is rejected with an actionable
+  absolute-path error rather than selecting either file.
 * A symbolic link inside an allowed root that points to a file outside every
   root is rejected.
 * Configurations containing `/`, the home directory, an ancestor of the home
@@ -236,7 +245,7 @@ Local results:
 * `python -m pylint aidp_common aidp_common/tests/*.py aidp_mcp
   aidp_mcp/tests/*.py cluster_lifecycle/*.py cluster_lifecycle/tests/*.py
   catalog_tree/*.py catalog_tree/tests/*.py conftest.py` scored 10.00/10.
-* `python -m pytest -q` passed: 171 tests.
+* `python -m pytest -q` passed: 172 tests.
 * `git diff --check` passed.
 * Offline tests confirm that missing workspace configuration, invalid region,
   and a missing explicitly selected dotenv file raise `AidpError` rather than
@@ -247,6 +256,8 @@ Local results:
   rejection without path disclosure, process-environment precedence, and an
   `apply=false` upload plan that issues no remote write request. The plan
   reports a root-relative `local_path` and a directory-name-only `local_root`.
+  They also confirm that duplicate relative paths in two configured roots are
+  rejected before the launcher working directory can select the server copy.
 * A non-interactive FastMCP client started the launcher with its working
   directory outside the repository and listed all 12 registered tools. No
   interactive MCP server was started.
