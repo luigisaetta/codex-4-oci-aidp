@@ -115,9 +115,9 @@ def deploy_aidp_agent(
 ) -> dict:
     """AI DP agent deploy: plan deployment by default.
 
-    The read-only plan verifies a CODE agent and an already ACTIVE AI Compute.
-    `apply=true` deployment, redeployment, and waiting are introduced in the
-    next execution-plan step; nothing is deleted by either step.
+    The plan verifies a CODE agent and an already ACTIVE AI Compute.
+    `apply=true` deploys or redeploys using that running compute; the endpoint
+    can be briefly unavailable during a redeploy. Nothing is deleted.
     """
     return agent_deploy.deploy_agent(
         _settings(),

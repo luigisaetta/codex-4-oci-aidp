@@ -140,7 +140,7 @@
     "name": "list_aidp_async_operations"
   },
   {
-    "description": "AI DP agent deploy: plan deployment by default.\n\nThe read-only plan verifies a CODE agent and an already ACTIVE AI Compute.\n`apply=true` deployment, redeployment, and waiting are introduced in the\nnext execution-plan step; nothing is deleted by either step.",
+    "description": "AI DP agent deploy: plan deployment by default.\n\nThe plan verifies a CODE agent and an already ACTIVE AI Compute.\n`apply=true` deploys or redeploys using that running compute; the endpoint\ncan be briefly unavailable during a redeploy. Nothing is deleted.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

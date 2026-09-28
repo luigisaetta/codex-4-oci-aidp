@@ -31,6 +31,12 @@ def _workspace_clients(clusters, objects):
     yield "instance", "workspace", clusters, Mock(), Mock(), objects
 
 
+@contextmanager
+def _async_operations_clients(client):
+    """Provide the minimal instance-scoped async-operations client contract."""
+    yield "instance", client
+
+
 def _deployment(key="deployment-key", **values):
     """Build one representative SDK deployment summary."""
     defaults = {
@@ -54,7 +60,9 @@ def _plan_contexts(monkeypatch, *, agent=None, deployments=None, compute=None):
     client.get_agent.return_value = SimpleNamespace(data=detail)
     client.list_agent_deployments.return_value = _response(deployments or [])
     clusters, objects = Mock(), Mock()
-    compute = compute or SimpleNamespace(type="AI_COMPUTE", state="ACTIVE")
+    compute = compute or SimpleNamespace(
+        key="compute-key", type="AI_COMPUTE", state="ACTIVE"
+    )
     monkeypatch.setattr(
         agent_deploy, "agent_clients", lambda _settings: _agent_clients(client)
     )
@@ -202,18 +210,151 @@ def test_deploy_agent_plan_rejects_ambiguous_or_unhealthy_deployments(
         agent_deploy.deploy_agent(SimpleNamespace(), "hello", "aicomp02")
 
 
-def test_deploy_agent_apply_is_rejected_before_remote_client_creation(monkeypatch):
-    """Step 2 cannot submit a deployment even when a caller sets apply=true."""
-    agent_context = Mock()
-    workspace_context = Mock()
-    monkeypatch.setattr(agent_deploy, "agent_clients", agent_context)
-    monkeypatch.setattr(agent_deploy, "workspace_clients", workspace_context)
+def test_deploy_agent_apply_submits_first_deployment_once_without_wait(monkeypatch):
+    """First deployment uses the exact SDK details model and never retries."""
+    client = _plan_contexts(monkeypatch)
+    client.deploy_agent.return_value = SimpleNamespace(status=202)
 
-    with pytest.raises(AidpError, match="not available"):
-        agent_deploy.deploy_agent(SimpleNamespace(), "hello", "aicomp02", apply=True)
+    result = agent_deploy.deploy_agent(
+        SimpleNamespace(), "hello", "aicomp02", apply=True, wait=False
+    )
 
-    agent_context.assert_not_called()
-    workspace_context.assert_not_called()
+    assert result == {"action": "deploy", "http_status": 202, "state": "SUBMITTED"}
+    call = client.deploy_agent.call_args
+    assert call.args[:3] == ("instance", "workspace", "agent-key")
+    details = call.args[3]
+    assert type(details).__name__ == "DeployAgentDetails"
+    assert details.agent_key == "agent-key"
+    assert details.agent_compute_key == "compute-key"
+    assert type(call.kwargs["retry_strategy"]).__name__ == "NoneRetryStrategy"
+    client.redeploy_agent_by_key.assert_not_called()
+
+
+def test_deploy_agent_waits_for_new_redeployment_creation_time(monkeypatch):
+    """Redeployment completes only when ACTIVE and recreated after the plan."""
+    previous = _deployment(time_created="2026-09-28T08:00:00Z")
+    final = _deployment(time_created="2026-09-28T08:01:00Z")
+    client = _plan_contexts(monkeypatch, deployments=[previous])
+    client.redeploy_agent_by_key.return_value = SimpleNamespace(status=202)
+    client.list_agent_deployments.side_effect = [
+        _response([previous]),
+        _response([final]),
+    ]
+    monkeypatch.setattr(agent_deploy.time, "monotonic", Mock(side_effect=[0, 0, 1]))
+
+    result = agent_deploy.deploy_agent(
+        SimpleNamespace(), "hello", "aicomp02", apply=True
+    )
+
+    call = client.redeploy_agent_by_key.call_args
+    assert call.args[:3] == ("instance", "workspace", "agent-key")
+    assert type(call.args[3]).__name__ == "UpdateAgentDeploymentDetails"
+    assert call.args[3].agent_compute_key == "compute-key"
+    assert type(call.kwargs["retry_strategy"]).__name__ == "NoneRetryStrategy"
+    assert result["final_deployment"]["time_created"] == final.time_created
+    assert result["previous_time_created"] == previous.time_created
+    assert result["endpoint_stable"] is True
+    assert result["async_operation"] is None
+    assert "timed_out" not in result
+
+
+def test_redeploy_wait_ignores_time_updated_and_deployment_version(monkeypatch):
+    """Only a newer creation time can make a redeploy wait complete."""
+    previous = _deployment()
+    unchanged = SimpleNamespace(
+        **{
+            **previous.__dict__,
+            "time_updated": "2026-09-28T08:01:00Z",
+            "deployment_version": "new",
+        }
+    )
+    client = _plan_contexts(monkeypatch, deployments=[previous])
+    client.redeploy_agent_by_key.return_value = SimpleNamespace(status=202)
+    client.list_agent_deployments.side_effect = [
+        _response([previous]),
+        _response([unchanged]),
+        _response([unchanged]),
+    ]
+    monkeypatch.setattr(agent_deploy.time, "sleep", Mock())
+    monkeypatch.setattr(
+        agent_deploy.time, "monotonic", Mock(side_effect=[0, 0, 0, 30, 31])
+    )
+
+    result = agent_deploy.deploy_agent(
+        SimpleNamespace(), "hello", "aicomp02", apply=True, timeout_seconds=30
+    )
+
+    assert result["timed_out"] is True
+
+
+def test_deploy_agent_reports_failed_wait_with_matching_async_operation(monkeypatch):
+    """A failed deployment stops once and returns the newest matching error."""
+    failed = _deployment(lifecycle_state="FAILED", endpoint_url=None)
+    client = _plan_contexts(monkeypatch)
+    client.deploy_agent.return_value = SimpleNamespace(status=202)
+    client.list_agent_deployments.side_effect = [_response([]), _response([failed])]
+    operation_client = Mock()
+    operation = SimpleNamespace(
+        key="operation-key",
+        action_type="DEPLOY_AGENT",
+        resource_display_name="agent-key_PROD_1",
+    )
+    detail = SimpleNamespace(
+        key="operation-key",
+        status="FAILED",
+        error_code="FAILED",
+        error_message="ocid1.user.oc1..private failure",
+    )
+    operation_client.list_async_operations.return_value = _response([operation])
+    operation_client.get_async_operation.return_value = SimpleNamespace(data=detail)
+    monkeypatch.setattr(
+        agent_deploy,
+        "async_operations_clients",
+        lambda _settings: _async_operations_clients(operation_client),
+    )
+    monkeypatch.setattr(agent_deploy.time, "monotonic", Mock(side_effect=[0, 0, 1]))
+
+    result = agent_deploy.deploy_agent(
+        SimpleNamespace(), "hello", "aicomp02", apply=True
+    )
+
+    assert result["state"] == "FAILED"
+    assert result["async_operation"] == {
+        "key": "operation-key",
+        "status": "FAILED",
+        "error_code": "FAILED",
+        "error_message": "<ocid> failure",
+    }
+    assert (
+        operation_client.list_async_operations.call_args.kwargs["resource_type"]
+        == "AGENT"
+    )
+
+
+def test_deploy_agent_reports_timeout_without_resubmitting(monkeypatch):
+    """Timeout reports current state and leaves the single request in flight."""
+    client = _plan_contexts(monkeypatch)
+    client.deploy_agent.return_value = SimpleNamespace(status=202)
+    client.list_agent_deployments.side_effect = [
+        _response([]),
+        _response([]),
+        _response([]),
+    ]
+    sleep = Mock()
+    monkeypatch.setattr(agent_deploy.time, "sleep", sleep)
+    monkeypatch.setattr(
+        agent_deploy.time, "monotonic", Mock(side_effect=[0, 0, 0, 30, 31])
+    )
+
+    result = agent_deploy.deploy_agent(
+        SimpleNamespace(), "hello", "aicomp02", apply=True, timeout_seconds=30
+    )
+
+    assert result["timed_out"] is True
+    assert result["final_deployment"] is None
+    assert result["elapsed_s"] == 31
+    sleep.assert_called_once_with(10)
+    client.deploy_agent.assert_called_once()
 
 
 @pytest.mark.parametrize(

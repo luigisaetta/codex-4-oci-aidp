@@ -424,3 +424,24 @@ Offline verification completed in the `codex-4-oci-aidp` Conda environment:
 
 No live call was made; manual verification remains pending explicit
 authorization.
+
+### Execution-plan step 3 — 2026-09-28
+
+Implemented `apply=true` submission and bounded wait for
+`deploy_aidp_agent`. The planner is always recomputed before one exact SDK
+deploy or redeploy call using `NoneRetryStrategy`; no deploy request is
+retried, cancelled, undeployed, or deleted. `wait=false` returns
+`SUBMITTED`. A deploy wait needs one ACTIVE PROD deployment, while a redeploy
+also needs a strictly newer `time_created`; `time_updated` and deployment
+version are not used. Failed deployment states return the newest matching,
+sanitized `DEPLOY_AGENT` async-operation error. Timeout leaves the submitted
+operation running and reports the last observed state.
+
+Offline verification completed in the `codex-4-oci-aidp` Conda environment:
+
+* `pytest -q` — 293 passed;
+* `pylint aidp_common aidp_mcp tests` — 10.00/10;
+* Black check and `git diff --check` passed.
+
+No live call was made; the required manual verification remains pending
+explicit authorization.
