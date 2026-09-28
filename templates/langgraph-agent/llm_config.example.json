@@ -1,0 +1,5 @@
+{
+  "compartment_id": "<your-compartment-ocid>",
+  "model_id": "openai.gpt-5.4",
+  "endpoint": "https://inference.generativeai.eu-frankfurt-1.oci.oraclecloud.com"
+}
