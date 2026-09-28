@@ -7,7 +7,7 @@
 ![MCP](https://img.shields.io/badge/MCP-stdio-6E56CF)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
-**Develop on your laptop with Codex. Deploy and run on OCI AI Data Platform
+**Develop on your Mac/laptop with Codex. Deploy and run on OCI AI Data Platform
 with guardrails.**
 
 `codex-4-oci-aidp` connects a coding agent to
