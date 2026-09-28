@@ -493,3 +493,32 @@ Final MCP snapshot confirmation and offline verification completed in the
 No live call was made: the manual deploy/redeploy, endpoint-interruption, and
 invocation verification required by this specification remain pending explicit
 authorization.
+
+### Follow-up fixes — 2026-09-28
+
+Corrected deployment selection and waiting so that only non-deleted PROD
+deployments affect a deploy or redeploy. FAILED and CREATING TEST (Playground)
+deployments no longer block a valid PROD plan or wait. A failed wait now
+requires a PROD deployment from the submitted request's plan baseline; for a
+redeploy, its `time_created` must be later than the planned deployment. Older
+or non-PROD failures are ignored.
+
+Strengthened operational-skill validation while preserving the explicit
+per-skill MCP tool contracts. The test now scans every Markdown file below
+`skills/` and rejects every backticked snake_case identifier that contains
+`aidp` or starts with a recognized MCP tool prefix when it is absent from the
+MCP snapshot. Manual negative verification added a temporary
+`deploy_aidp_agnet` reference: the skill test failed and reported the unknown
+identifier. The temporary reference was removed and is not committed.
+
+Offline verification completed in the `codex-4-oci-aidp` Conda environment:
+
+* focused deployment and skill tests — 28 passed;
+* manual misspelled-tool check — failed as expected, then removed;
+* `pytest -q` — 298 passed;
+* `pylint aidp_common aidp_mcp tests` — 10.00/10;
+* `black --check aidp_common aidp_mcp tests` — 42 files unchanged;
+* `git diff --check` passed.
+
+No live call was made; the remote verification items above remain pending
+explicit authorization.

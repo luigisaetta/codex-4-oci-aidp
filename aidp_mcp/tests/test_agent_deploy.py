@@ -118,6 +118,45 @@ def test_deploy_agent_plan_selects_active_prod_redeployment(monkeypatch):
     client.redeploy_agent_by_key.assert_not_called()
 
 
+def test_deploy_agent_plan_ignores_failed_and_creating_test_deployments(
+    monkeypatch,
+):
+    """Playground deployment failures cannot block a first PROD deploy plan."""
+    failed_test = _deployment(
+        "failed-test", lifecycle_state="FAILED", deployment_type="TEST"
+    )
+    creating_test = _deployment(
+        "creating-test", lifecycle_state="CREATING", deployment_type="TEST"
+    )
+    client = _plan_contexts(monkeypatch, deployments=[failed_test, creating_test])
+
+    result = agent_deploy.deploy_agent(SimpleNamespace(), "hello", "aicomp02")
+
+    assert result["action"] == "deploy"
+    assert result["current_deployment"] is None
+    client.deploy_agent.assert_not_called()
+    client.redeploy_agent_by_key.assert_not_called()
+
+
+def test_deploy_agent_plan_ignores_failed_and_creating_test_for_redeploy(
+    monkeypatch,
+):
+    """Playground deployment failures cannot block a safe PROD redeploy plan."""
+    active = _deployment()
+    failed_test = _deployment(
+        "failed-test", lifecycle_state="FAILED", deployment_type="TEST"
+    )
+    creating_test = _deployment(
+        "creating-test", lifecycle_state="CREATING", deployment_type="TEST"
+    )
+    _plan_contexts(monkeypatch, deployments=[failed_test, active, creating_test])
+
+    result = agent_deploy.deploy_agent(SimpleNamespace(), "hello", "aicomp02")
+
+    assert result["action"] == "redeploy"
+    assert result["current_deployment"]["key"] == active.key
+
+
 @pytest.mark.parametrize(
     ("agent", "source", "message"),
     [
@@ -329,6 +368,72 @@ def test_deploy_agent_reports_failed_wait_with_matching_async_operation(monkeypa
         operation_client.list_async_operations.call_args.kwargs["resource_type"]
         == "AGENT"
     )
+
+
+def test_deploy_wait_ignores_failed_and_creating_test_deployments(monkeypatch):
+    """Only the new ACTIVE PROD deployment completes a wait with Playground noise."""
+    failed_test = _deployment(
+        "failed-test", lifecycle_state="FAILED", deployment_type="TEST"
+    )
+    creating_test = _deployment(
+        "creating-test", lifecycle_state="CREATING", deployment_type="TEST"
+    )
+    active_prod = _deployment("prod", time_created="2026-09-28T08:01:00Z")
+    client = _plan_contexts(monkeypatch)
+    client.deploy_agent.return_value = SimpleNamespace(status=202)
+    client.list_agent_deployments.side_effect = [
+        _response([]),
+        _response([failed_test, creating_test, active_prod]),
+    ]
+    monkeypatch.setattr(agent_deploy.time, "monotonic", Mock(side_effect=[0, 0, 1]))
+
+    result = agent_deploy.deploy_agent(
+        SimpleNamespace(), "hello", "aicomp02", apply=True
+    )
+
+    assert result["final_deployment"]["key"] == active_prod.key
+    assert result["async_operation"] is None
+    assert "timed_out" not in result
+
+
+def test_redeploy_wait_ignores_an_older_failed_prod_deployment():
+    """A failed PROD deployment from before the request cannot end a redeploy wait."""
+    previous = _deployment(time_created="2026-09-28T08:00:00Z")
+    old_failed = _deployment(
+        "old-failed", lifecycle_state="FAILED", time_created="2026-09-28T07:59:00Z"
+    )
+    previous_summary = agent_deploy._deployment_summary(previous.__dict__)
+
+    outcome = agent_deploy._deployment_wait_outcome(
+        "redeploy",
+        [previous.__dict__, old_failed.__dict__],
+        previous_summary,
+    )
+
+    assert outcome == {
+        "state": "PENDING",
+        "deployment": previous_summary,
+    }
+
+
+def test_redeploy_wait_reports_a_newer_failed_prod_deployment():
+    """A failed PROD deployment created after the plan ends a redeploy wait."""
+    previous = _deployment(time_created="2026-09-28T08:00:00Z")
+    new_failed = _deployment(
+        "new-failed", lifecycle_state="FAILED", time_created="2026-09-28T08:01:00Z"
+    )
+    previous_summary = agent_deploy._deployment_summary(previous.__dict__)
+
+    outcome = agent_deploy._deployment_wait_outcome(
+        "redeploy",
+        [previous.__dict__, new_failed.__dict__],
+        previous_summary,
+    )
+
+    assert outcome == {
+        "state": "FAILED",
+        "deployment": agent_deploy._deployment_summary(new_failed.__dict__),
+    }
 
 
 def test_deploy_agent_reports_timeout_without_resubmitting(monkeypatch):

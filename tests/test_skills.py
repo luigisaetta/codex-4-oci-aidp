@@ -24,6 +24,18 @@ ALLOWED_FRONTMATTER_KEYS = {
 }
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 MARKDOWN_LINK_PATTERN = re.compile(r"!?\[[^]]*\]\(([^)]+)\)")
+BACKTICKED_IDENTIFIER_PATTERN = re.compile(r"`([a-z][a-z0-9_]*)`")
+MCP_TOOL_PREFIXES = (
+    "list_",
+    "get_",
+    "upload_",
+    "ensure_",
+    "deploy_",
+    "invoke_",
+    "start_",
+    "set_",
+    "find_",
+)
 
 
 def parse_frontmatter(skill_path: Path) -> dict[str, str]:
@@ -76,6 +88,29 @@ def assert_relative_links_exist(skill_path: Path) -> None:
         ).exists(), f"{skill_path} links to missing file {target_path!r}"
 
 
+def referenced_mcp_tools(markdown_paths: list[Path]) -> set[str]:
+    """Return backticked identifiers that match the documented MCP-tool shape.
+
+    Args:
+        markdown_paths: Markdown files belonging to one operational skill.
+
+    Returns:
+        Tool-like identifiers referenced by the supplied Markdown files.
+    """
+    identifiers = {
+        identifier
+        for path in markdown_paths
+        for identifier in BACKTICKED_IDENTIFIER_PATTERN.findall(
+            path.read_text(encoding="utf-8")
+        )
+    }
+    return {
+        identifier
+        for identifier in identifiers
+        if "aidp" in identifier or identifier.startswith(MCP_TOOL_PREFIXES)
+    }
+
+
 def test_skill_metadata_and_links() -> None:
     """Validate frontmatter, naming, descriptions, and local links for skills."""
     for skill_path in iter_skill_paths():
@@ -89,7 +124,7 @@ def test_skill_metadata_and_links() -> None:
 
 
 def test_operational_skills_reference_snapshot_tools() -> None:
-    """Ensure every operational workflow retains its declared MCP tool contract."""
+    """Ensure skill tool references match the MCP snapshot and each contract."""
     available_tools = {
         tool["name"] for tool in json.loads(TOOL_SNAPSHOT.read_text(encoding="utf-8"))
     }
@@ -113,16 +148,17 @@ def test_operational_skills_reference_snapshot_tools() -> None:
             "list_aidp_async_operations",
         },
     }
+    all_markdown_paths = list((REPOSITORY_ROOT / "skills").rglob("*.md"))
+    assert referenced_mcp_tools(all_markdown_paths).issubset(available_tools)
     skill_paths = list((REPOSITORY_ROOT / "skills").rglob("SKILL.md"))
     assert {path.parent.name for path in skill_paths} == set(expected_tools_by_skill)
     for skill_path in skill_paths:
-        references = "\n".join(
-            path.read_text(encoding="utf-8") for path in skill_path.parent.rglob("*.md")
-        )
-        referenced_tools = set(re.findall(r"`([a-z][a-z0-9_]*)`", references))
+        markdown_paths = list(skill_path.parent.rglob("*.md"))
+        referenced_tools = referenced_mcp_tools(markdown_paths)
         expected_tools = expected_tools_by_skill[skill_path.parent.name]
         assert expected_tools.issubset(referenced_tools)
         assert expected_tools.issubset(available_tools)
+        assert referenced_tools.issubset(available_tools)
 
 
 def run_install_script(*arguments: str) -> subprocess.CompletedProcess[str]:

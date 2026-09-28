@@ -190,20 +190,11 @@ def _compute_recovery_message(current_state):
 
 def _deployment_action(deployments):
     """Select one PROD action while leaving unrelated TEST deployments alone."""
-    retained = [
+    prod_deployments = [
         deployment
         for deployment in deployments
         if deployment.get("lifecycle_state") != "DELETED"
-    ]
-    if any(
-        deployment.get("lifecycle_state") in {"CREATING", "FAILED"}
-        for deployment in retained
-    ):
-        raise _ambiguous_deployment_error(retained)
-    prod_deployments = [
-        deployment
-        for deployment in retained
-        if deployment.get("deployment_type") == "PROD"
+        and deployment.get("deployment_type") == "PROD"
     ]
     if not prod_deployments:
         return "deploy", None
@@ -212,7 +203,7 @@ def _deployment_action(deployments):
         and prod_deployments[0].get("lifecycle_state") == "ACTIVE"
     ):
         return "redeploy", _deployment_summary(prod_deployments[0])
-    raise _ambiguous_deployment_error(retained)
+    raise _ambiguous_deployment_error(prod_deployments)
 
 
 def _ambiguous_deployment_error(deployments):
@@ -358,23 +349,21 @@ def _wait_for_deployment(
 
 
 def _deployment_wait_outcome(action, deployments, previous):
-    """Classify current deployments using only verified lifecycle fields."""
-    retained = [
+    """Classify only PROD deployments that can belong to this request."""
+    prod_deployments = [
         deployment
         for deployment in deployments
         if deployment.get("lifecycle_state") != "DELETED"
-    ]
-    prod_deployments = [
-        deployment
-        for deployment in retained
         if deployment.get("deployment_type") == "PROD"
     ]
-    if any(deployment.get("lifecycle_state") == "FAILED" for deployment in retained):
-        failed = next(
-            deployment
-            for deployment in retained
-            if deployment.get("lifecycle_state") == "FAILED"
-        )
+    failed_deployments = [
+        deployment
+        for deployment in prod_deployments
+        if deployment.get("lifecycle_state") == "FAILED"
+        and _failed_deployment_is_from_request(action, deployment, previous)
+    ]
+    if failed_deployments:
+        failed = failed_deployments[0]
         return {"state": "FAILED", "deployment": _deployment_summary(failed)}
     active = [
         deployment
@@ -389,6 +378,15 @@ def _deployment_wait_outcome(action, deployments, previous):
     ):
         return {"state": "PENDING", "deployment": final}
     return {"state": "ACTIVE", "deployment": final}
+
+
+def _failed_deployment_is_from_request(action, deployment, previous):
+    """Return whether a failed PROD deployment was absent from the plan baseline."""
+    if action == "deploy":
+        return previous is None
+    return _time_created_is_later(
+        deployment.get("time_created"), previous["time_created"]
+    )
 
 
 def _time_created_is_later(current, previous):
