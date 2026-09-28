@@ -445,3 +445,26 @@ Offline verification completed in the `codex-4-oci-aidp` Conda environment:
 
 No live call was made; the required manual verification remains pending
 explicit authorization.
+
+### Execution-plan step 4 — 2026-09-28
+
+Implemented the user-scope `aidp-agent-deploy` operational skill with an
+`aidp-mcp` dependency, implicit discovery enabled, a skill-naming default
+prompt, and a concise approval-gated workflow. Its troubleshooting reference
+records the verified deployment, AI Compute, session, and user-code failure
+observations with verification dates. The skill does not author agents or
+fall back to SDK, CLI, REST, or scripts.
+
+The skill validation now checks every operational skill's declared MCP tool
+contract against the snapshot and scans its Markdown references. Offline
+verification completed in the `codex-4-oci-aidp` Conda environment:
+
+* `quick_validate.py skills/aidp-agent-deploy` — `Skill is valid!`;
+* `pytest -q` — 293 passed;
+* `pylint aidp_common aidp_mcp tests` — 10.00/10;
+* Black check and `git diff --check` passed;
+* `scripts/install_skills.sh --dry-run` reported creation of both operational
+  skills without modifying a user-scope directory.
+
+No live call was made; manual workflow verification remains pending explicit
+authorization.

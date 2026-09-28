@@ -1,0 +1,13 @@
+interface:
+  display_name: "AI DP Agent Deploy"
+  short_description: "Deploy and smoke-test an AI DP agent"
+  default_prompt: "Use $aidp-agent-deploy to deploy an existing AI DP code agent and verify it."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "aidp-mcp"
+      description: "Managed AI DP code-agent workflow tools"
+
+policy:
+  allow_implicit_invocation: true

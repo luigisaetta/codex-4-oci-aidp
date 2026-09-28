@@ -1,6 +1,6 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-27
+Date last modified: 2026-09-28
 License: MIT
 Description: Validate local Codex skill metadata and installer safety behavior.
 """
@@ -10,8 +10,6 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-
-import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOTS = (REPOSITORY_ROOT / "skills", REPOSITORY_ROOT / ".agents" / "skills")
@@ -90,29 +88,41 @@ def test_skill_metadata_and_links() -> None:
         assert_relative_links_exist(skill_path)
 
 
-def test_aidp_deploy_skill_references_snapshot_tools() -> None:
-    """Ensure the operational workflow skill cannot reference renamed MCP tools."""
-    skill_path = (
-        REPOSITORY_ROOT / "skills" / "aidp-notebook-deploy-and-run" / "SKILL.md"
-    )
-    if not skill_path.exists():
-        pytest.skip("The aidp-notebook-deploy-and-run skill is not implemented yet.")
-
+def test_operational_skills_reference_snapshot_tools() -> None:
+    """Ensure every operational workflow retains its declared MCP tool contract."""
     available_tools = {
         tool["name"] for tool in json.loads(TOOL_SNAPSHOT.read_text(encoding="utf-8"))
     }
-    referenced_tools = set(re.findall(r"`([a-z][a-z0-9_]*)`", skill_path.read_text()))
-    expected_tools = {
-        "upload_notebook",
-        "find_notebook_jobs",
-        "ensure_notebook_job",
-        "get_cluster_status",
-        "set_cluster_state",
-        "start_notebook_job",
-        "get_job_run_output",
+    expected_tools_by_skill = {
+        "aidp-notebook-deploy-and-run": {
+            "upload_notebook",
+            "find_notebook_jobs",
+            "ensure_notebook_job",
+            "get_cluster_status",
+            "set_cluster_state",
+            "start_notebook_job",
+            "get_job_run_output",
+        },
+        "aidp-agent-deploy": {
+            "upload_aidp_agent_code",
+            "ensure_aidp_agent",
+            "get_cluster_status",
+            "set_cluster_state",
+            "deploy_aidp_agent",
+            "invoke_aidp_agent",
+            "list_aidp_async_operations",
+        },
     }
-    assert expected_tools.issubset(referenced_tools)
-    assert referenced_tools.intersection(expected_tools).issubset(available_tools)
+    skill_paths = list((REPOSITORY_ROOT / "skills").rglob("SKILL.md"))
+    assert {path.parent.name for path in skill_paths} == set(expected_tools_by_skill)
+    for skill_path in skill_paths:
+        references = "\n".join(
+            path.read_text(encoding="utf-8") for path in skill_path.parent.rglob("*.md")
+        )
+        referenced_tools = set(re.findall(r"`([a-z][a-z0-9_]*)`", references))
+        expected_tools = expected_tools_by_skill[skill_path.parent.name]
+        assert expected_tools.issubset(referenced_tools)
+        assert expected_tools.issubset(available_tools)
 
 
 def run_install_script(*arguments: str) -> subprocess.CompletedProcess[str]:
