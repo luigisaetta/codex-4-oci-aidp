@@ -1,64 +1,61 @@
-# Recipe: build and deploy a LangGraph order agent on OCI AI DP
+# Recipe: build, test, and deploy a LangGraph order agent with Codex
 
-This recipe builds a code-first LangGraph agent that handles a product order
-request and deploys it to OCI AI Data Platform with Codex and the `aidp-mcp`
-tools. It is the reference procedure from which a future agent-authoring
-skill will be derived, once it has been validated end to end.
+A numbered sequence of requests to give Codex in **one interactive session**.
+Codex builds a code-first LangGraph agent, tests it locally, and deploys it to
+OCI AI Data Platform with the `aidp-mcp` tools and the `aidp-agent-deploy`
+skill. For each step, the recipe explains what the step does and what result
+to expect.
 
-The agent:
+**The agent:**
+1. It receives an English sentence, for example "Please ship a dozen A4
+   notebooks".
+2. It uses an LLM to extract the **product** and the **quantity**.
+3. It checks availability in a simulated **catalog and warehouse**: JSON files
+   shipped with the agent.
+4. It answers positively or negatively, and explains why.
 
-1. receives an English sentence, for example "Please ship a dozen A4
-   notebooks";
-2. uses an LLM to **extract** the product and the quantity (structured
-   output);
-3. **checks availability** in a simulated catalog and warehouse (JSON files
-   shipped with the agent code);
-4. **answers** positively or negatively, and explains why.
+The runtime facts behind this recipe were verified on AI DP on 2026-09-28.
+See `specs/014-agent-runtime-facts-and-knowledge.md`.
 
-The runtime facts this recipe relies on were verified on 2026-09-28. See
-`specs/014-agent-runtime-facts-and-knowledge.md`.
+## Before you start
 
-## Design rules
+* The AI Compute (here `aicomp02`) is `ACTIVE`, and the AI DP AI Lakehouse is
+  `AVAILABLE`.
+* The `aidp-mcp` server is registered in Codex, and the skills are installed
+  with `scripts/install_skills.sh`.
+* `/Users/lsaetta/Progetti/agents-4-ai-dp` is listed in `AIDP_ALLOWED_ROOTS`.
+* Open a **new Codex session** in `/Users/lsaetta/Progetti/agents-4-ai-dp`.
+* When Codex shows a plan and asks for approval, read it and answer
+  **"approved"**, or say what to change.
 
-* **The LLM only extracts.** Matching, stock checks, and the answer are
-  deterministic Python, so they are testable without a model.
+## Design rules (Codex reads these in step 1)
+
+* **The LLM only extracts.** Product matching, the stock check, and the
+  answer are deterministic Python.
 * **One model factory, two runtimes.** `llm_factory.py` returns
   `langchain_oci.ChatOCIGenAI` (API-key profile) when `LOCAL=true`, and
   `aidputils` `init_oci_llm` otherwise. Import each library only in its own
-  branch. Reuse `agents/env_probe/llm_factory.py`.
-* **Never raise from `invoke()` for business outcomes.** AI DP hides exception
-  details from callers. Answer "not understood", "unknown product", or "not
-  enough stock" explicitly. Let only genuine bugs raise, so that they show up
-  as `AIDP_USER_CODE_EXECUTION_ERROR`.
-* **Resolve data files from a sibling module**, never from the entry file. On
-  AI DP the entry file is renamed `user_code.py` and lives outside `app/`,
-  where the other files are.
-* **Configuration out of code.** `order_config.json` holds `compartment_id`,
-  `model_id`, and `endpoint`. It is excluded from Git; `order_config.example.json`
-  is committed.
+  branch. Start from `agents/env_probe/llm_factory.py`, which is verified on
+  AI DP.
 * **Model:** `openai.gpt-5.4`, verified for structured output locally and on
-  AI DP. `meta.llama-3.3-70b-instruct` also works locally. Avoid
-  `cohere.command-a-03-2025` for structured output.
+  AI DP.
+* **Business outcomes never raise.** The four outcomes are available,
+  insufficient stock, unknown product, and not understood. Each one is an
+  explicit answer. AI DP hides exception details, so only genuine bugs may
+  raise.
+* **Runtime layout.** On AI DP the entry file is renamed `user_code.py` and
+  runs outside `app/`, which holds all the other files.
+  * Keep the entry file thin.
+  * Read data only from sibling modules, through their own `__file__`.
+  * Sibling imports work: `app/` is first on `sys.path`.
+* **Configuration out of code.** `order_config.json` holds `compartment_id`,
+  `model_id`, and `endpoint`. It is excluded from Git;
+  `order_config.example.json` is committed.
+* **Dependencies:** the agent's `requirements.txt` lists no packages. LangGraph
+  1.2.4, langchain 1.3.9, langchain-core 1.4.6, langchain-oci 0.3.1, and
+  pydantic 2.13.5 are preinstalled on AI DP.
 
-## Target layout (in `agents-4-ai-dp`)
-
-```text
-agents/order_agent/
-  order_agent.py            entry file: thin class with setup() and async invoke()
-  graph.py                  StateGraph: extract -> check_stock -> respond
-  llm_factory.py            LOCAL=true -> langchain_oci, otherwise aidputils
-  inventory.py              loads the JSON files via its own __file__, and does the stock check
-  config.py                 loads order_config.json via its own __file__
-  order_config.json         local configuration (excluded from Git)
-  order_config.example.json
-  data/catalog.json         products: sku, name, aliases, unit
-  data/warehouse.json       stock per sku
-  requirements.txt          no packages (everything needed is preinstalled)
-tests/
-  test_order_agent.py       offline tests with a fake structured LLM
-```
-
-Suggested data, chosen to make the three smoke-test outcomes deterministic:
+**Data**, chosen so that every test sentence has a deterministic outcome:
 
 | sku | name | aliases | stock |
 | --- | --- | --- | --- |
@@ -66,77 +63,104 @@ Suggested data, chosen to make the three smoke-test outcomes deterministic:
 | CHG-USBC65 | USB-C charger | USB-C chargers, usb c charger | 5 |
 | NB-A4-80 | A4 notebook | A4 notebooks | 100 |
 
-## Prerequisites
+---
 
-* The AI Compute (for example `aicomp02`) is `ACTIVE`, and the AI DP AI
-  Lakehouse is `AVAILABLE`.
-* The `aidp-mcp` server is registered, and the skills are installed
-  (`scripts/install_skills.sh`).
-* `agents-4-ai-dp` is listed in `AIDP_ALLOWED_ROOTS`.
-* The local environment uses the pins from `requirements-local.txt`, aligned
-  with the runtime by spec 014.
-* **Spec 014 is implemented**, in particular the runtime-faithful local
-  harness.
+## 1. Align the local environment with the AI DP runtime
 
-## Steps (Codex prompts, one per step)
-
-Run the prompts in a Codex session opened in `agents-4-ai-dp`. Review the
-result of each step before moving on.
-
-### Step 1: scaffold, data, and configuration
+**What it does:** it creates a local Python environment with the same
+LangGraph and LangChain versions as the AI DP runtime. Local tests are
+meaningful only if the versions match.
 
 ```text
-Create agents/order_agent following recipes/langgraph-order-agent.md in
-codex-4-oci-aidp (layout, design rules, suggested data). Copy llm_factory.py
-from agents/env_probe. Create order_config.example.json and a local
-order_config.json with the same values as agents/env_probe/probe_config.json
-but model_id "openai.gpt-5.4"; add order_config.json to .gitignore.
-requirements.txt must contain comments only. Do not write the graph yet.
+Create a Python 3.11 conda environment named agents-4-ai-dp. Install
+langgraph==1.2.4, langchain==1.3.9, langchain-core==1.4.6,
+langchain-oci==0.3.1, pydantic==2.13.5, pytest, black and pylint, with an
+oci version compatible with langchain-oci. Run pip check. Update
+requirements-local.txt with the resolved pins and fix any mention of
+LangGraph 1.0.1 in AGENTS.md, README.md and agents/hello_world/requirements.txt.
+Then run the existing tests.
 ```
 
-**Check:**
-* `inventory.py` and `config.py` resolve files through their own `__file__`;
-* `order_config.json` is ignored by Git.
+**Expected result:**
+* `pip check` reports no broken requirements;
+* `requirements-local.txt` pins the runtime versions;
+* the existing hello-world and contract tests pass.
 
-### Step 2: graph and deterministic logic
+## 2. Scaffold the agent
+
+**What it does:** Codex creates the agent folder, the simulated data, the
+model factory, and the configuration, following the design rules. No logic
+yet.
 
 ```text
-Implement graph.py and order_agent.py:
-- extract node: build_llm(config).with_structured_output(Order) where Order is
-  a pydantic model {product: str | None, quantity: int | None}; the prompt
-  asks to return nulls when the sentence is not an order.
-- check_stock node: match the product case-insensitively against catalog
-  name and aliases (inventory.py), then compare the quantity with the
-  warehouse stock.
-- respond node: deterministic English answers for: available (confirm sku,
-  product, quantity), insufficient stock (state available units), unknown
-  product, not understood (missing product or quantity <= 0).
-- invoke() never raises for these outcomes; build the LLM lazily in setup().
-Keep the entry file thin: it only exposes the agent class.
+Read the "Design rules" section of
+/Users/lsaetta/Progetti/codex-4-oci-aidp/recipes/langgraph-order-agent.md and
+scaffold agents/order_agent accordingly: a thin entry file order_agent.py,
+graph.py, llm_factory.py copied from agents/env_probe, inventory.py and
+config.py that load their JSON files through their own __file__,
+data/catalog.json and data/warehouse.json with the data table of the recipe,
+order_config.example.json, and a local order_config.json with the values of
+agents/env_probe/probe_config.json but model_id "openai.gpt-5.4". Add
+order_config.json to .gitignore. requirements.txt must contain comments only.
+Show me the tree when done.
 ```
 
-**Check:** the entry file only defines the class; all logic lives in sibling
-modules.
+**Expected result:**
+* the tree of `agents/order_agent/` contains the files above;
+* `order_config.json` is ignored by Git;
+* `inventory.py` and `config.py` use `Path(__file__).parent`.
 
-### Step 3: offline tests
+## 3. Implement the graph
+
+**What it does:** it creates the three-node LangGraph workflow:
+* **`extract`** calls the LLM with structured output;
+* **`check_stock`** runs the deterministic catalog and warehouse lookup;
+* **`respond`** builds the deterministic English answer.
 
 ```text
-Add tests/test_order_agent.py using a fake LLM whose with_structured_output
-returns predefined Order objects (no network). Cover the four outcomes, alias
-matching, quantity parsing edge cases (zero, negative, None), and a contract
-test through local_harness with the runtime-faithful layout. Run pytest,
-Black and Pylint.
+Implement the order agent: the extract node uses
+build_llm(config).with_structured_output(Order), where Order is a pydantic
+model {product: str | None, quantity: int | None}, and returns nulls when the
+sentence is not an order. check_stock matches the product case-insensitively
+against names and aliases and compares the quantity with the stock. respond
+returns clear English answers for the four outcomes (available, insufficient
+stock with the units available, unknown product, not understood). invoke()
+must not raise for these outcomes. Keep all logic out of the entry file.
 ```
 
-**Check:**
-* all tests pass offline;
-* the harness test uses the `app/` + `user_code.py` layout.
+**Expected result:**
+* the entry file only exposes the agent class;
+* the logic lives in `graph.py` and `inventory.py`.
 
-### Step 4: local integration with the real model
+## 4. Test offline
+
+**What it does:** it tests all the logic without a model or a network, using
+a fake LLM. It also reproduces the AI DP layout (`user_code.py` + `app/`), so
+that file-location mistakes show up now and not after the deploy.
 
 ```text
-Run the agent locally with LOCAL=true (OCI_PROFILE from my environment) through
-scripts/run_local.py for these sentences and show the answers:
+Write offline tests for the order agent with a fake LLM whose
+with_structured_output returns predefined Order objects. Cover the four
+outcomes, alias matching, and quantity edge cases (0, negative, missing).
+Add one test that reproduces the AI DP layout: copy agents/order_agent into a
+temporary app/ folder, copy the entry file to user_code.py next to it, put app/
+first on sys.path, set the working directory to the parent, and invoke the
+agent. Run pytest, Black and Pylint.
+```
+
+**Expected result:**
+* all tests pass offline, including the AI DP layout test;
+* Black and Pylint are clean.
+
+## 5. Try it locally with the real model
+
+**What it does:** it runs the agent on the laptop with `LOCAL=true`, so that
+the factory uses `langchain_oci` with your API-key profile. It verifies the
+real extraction quality before anything is deployed.
+
+```text
+Run the order agent locally with LOCAL=true (use my OCI_PROFILE) through
+scripts/run_local.py for these sentences and show each answer:
 1. "I'd like to order 3 wireless mice, please."
 2. "Can you send us twelve USB-C chargers by Friday?"
 3. "Please ship a dozen A4 notebooks."
@@ -144,85 +168,139 @@ scripts/run_local.py for these sentences and show the answers:
 5. "What's the weather like?"
 ```
 
-**Expected:**
+**Expected result:**
 
 | # | Outcome |
 | --- | --- |
 | 1 | available: 3 × MOUSE-W01 |
 | 2 | insufficient stock: only 5 available |
-| 3 | available: 12 × NB-A4-80 |
+| 3 | available: 12 × NB-A4-80 ("a dozen" → 12) |
 | 4 | unknown product |
 | 5 | not understood |
 
-### Step 5: deploy to AI DP
+## 6. Deploy to AI DP (uses the `aidp-agent-deploy` skill)
 
-Either ask generically, which exercises the `aidp-agent-deploy` skill:
+**What it does:** this is a generic request that names neither the skill nor
+the tools. Codex should load `aidp-agent-deploy` and run its workflow. It
+confirms that the local tests pass, then:
+
+1. **upload:** it plans the upload and waits for your approval;
+2. **agent definition:** it plans the creation of the CODE agent and waits;
+3. **compute:** it checks that the AI Compute is ACTIVE;
+4. **deploy:** it plans the deployment and waits;
+5. **smoke test:** it invokes the agent after your confirmation.
 
 ```text
 Deploy the order agent to AI Data Platform as agent "order_agent" in
-/Workspace/order_agent on compute aicomp02, and check that it works.
+/Workspace/order_agent on compute aicomp02, and check that it works with the
+sentence "Please ship a dozen A4 notebooks."
 ```
 
-or run the tools explicitly, approving each plan:
+**Expected result:**
+* **upload plan:** all files are `create`, including `data/` and
+  `order_config.json`; after approval, uploaded equals verified;
+* **agent plan:** `create`; the result is a CODE agent in `DRAFT`;
+* **deploy plan:** `deploy`; after approval the deployment is `ACTIVE` in
+  about 45 s, with its endpoint URL;
+* **smoke test:** the answer confirms 12 × NB-A4-80, and `total_tokens` is
+  greater than 0, which proves that an LLM call happened.
+
+If Codex does not pick the skill, repeat the request starting with
+`$aidp-agent-deploy`. Note this in the validation record: it is useful skill
+feedback.
+
+## 7. Run the business scenarios on AI DP
+
+**What it does:** it runs the same five sentences as step 5 against the
+deployed endpoint. It confirms that the platform behaves like the laptop,
+and shows what the platform observes.
 
 ```text
-1. upload_aidp_agent_code local_dir=<absolute path>/agents/order_agent workspace_dir=/Workspace/order_agent (plan, then apply)
-2. ensure_aidp_agent agent_name=order_agent workspace_dir=/Workspace/order_agent entry_file=order_agent.py dependencies_file=requirements.txt (plan, then apply)
-3. deploy_aidp_agent agent_name=order_agent compute_name=aicomp02 (plan, then apply with wait=true)
+Invoke order_agent on AI DP with the five sentences from the local test,
+one invocation each, and compare every answer with the local result. For each
+one show the answer, total_tokens and the trace summary.
 ```
 
-**Check:**
-* the upload lists all files, including `data/` and `order_config.json`;
-* the deployment is `ACTIVE`, and the elapsed time is about 45 s.
+**Expected result:**
+* the same five outcomes as step 5;
+* `total_tokens` > 0 for sentences 1–4. Sentence 5 also calls the model;
+* the trace shows the graph nodes (`extract`, `check_stock`, `respond`) with
+  their durations.
 
-### Step 6: smoke tests on AI DP
+## 8. Change the data and redeploy (uses the skill again)
+
+**What it does:** it simulates a business change. The redeploy after the
+upload is the step most often forgotten, and the skill must do it on its own.
 
 ```text
-Invoke order_agent with invoke_aidp_agent (confirm_invoke=true) for the five
-sentences of step 4 and compare each answer with the expected outcome.
-Report the session id, trace summary and total_tokens for each.
+We received new stock: set the USB-C charger stock to 20. Update the agent on
+AI Data Platform and check that "Can you send us twelve USB-C chargers by
+Friday?" is now accepted.
 ```
 
-**Check:**
-* same outcomes as step 4;
-* `total_tokens` is greater than 0 (an LLM call happened);
-* the trace shows the three graph nodes.
+**Expected result:**
+1. the offline tests are re-run;
+2. the upload plan shows **only `data/warehouse.json` as `update`**;
+3. the agent definition is `unchanged`;
+4. the deploy plan is **`redeploy`**. After approval, `time_created` is newer
+   and `endpoint_stable` is `true`;
+5. sentence 2 is now **available**: 12 × CHG-USBC65.
 
-### Step 7: change, redeploy, verify
+## 9. Diagnose a failure (optional)
+
+**What it does:** it shows how Codex investigates a failing agent. The
+platform hides exception details, so Codex has to combine the remote signals
+with local reproduction.
 
 ```text
-Increase the stock of USB-C chargers to 20 in data/warehouse.json, run the
-offline tests, upload (plan, approve, apply), redeploy with
-deploy_aidp_agent, then re-run sentence 2 and confirm it is now available.
+If any invocation of order_agent failed, investigate: show the error returned
+by the platform, the session messages and the trace, then reproduce the case
+locally with the AI DP layout test and propose a fix.
 ```
 
-**Check:**
-* the redeploy creates a new `time_created`, and the endpoint is stable;
-* sentence 2 now succeeds.
+**Expected result:**
+* a structured diagnosis: platform error code, session and trace evidence,
+  and a local reproduction;
+* a fix is proposed but not applied.
+
+## 10. Record the outcome
+
+**What it does:** it records what worked and what did not. This record is the
+input for the future agent-authoring skill.
+
+```text
+Fill in the "Validation record" section of
+/Users/lsaetta/Progetti/codex-4-oci-aidp/recipes/langgraph-order-agent.md
+with today's date, the model, the results of steps 5 to 8, whether the skill
+was selected automatically in steps 6 and 8, and any deviation from this
+recipe. Do not include OCIDs.
+```
+
+---
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Action |
+| Symptom | Likely cause | What to ask Codex |
 | --- | --- | --- |
-| Works locally, file not found on AI DP | data resolved from the entry file | resolve from a sibling module's `__file__` |
-| `AIDP_USER_CODE_EXECUTION_ERROR` | a bug raised in the code; details are hidden | reproduce with the runtime-faithful harness locally |
-| Endpoint still answers with old behavior | no redeploy after the upload | `deploy_aidp_agent` (redeploy) |
-| `total_tokens` is 0 | the extract node did not call the model | check the `LOCAL` handling and the factory branch |
-| Structured output returns `None` | model not suitable | use `openai.gpt-5.4` or `meta.llama-3.3-70b-instruct` |
-| AI Compute creation or startup fails with `InternalError` | AI Lakehouse stopped | start the Lakehouse |
+| Works locally, "file not found" on AI DP | data read from the entry file's folder | "Resolve the data files from inventory.py's own location and redeploy." |
+| `AIDP_USER_CODE_EXECUTION_ERROR` | a bug raised in the code; details are hidden | "Reproduce this case with the AI DP layout test and fix it." |
+| The endpoint answers with old behavior | no redeploy after the upload | "Redeploy order_agent and re-run the smoke test." |
+| `total_tokens` is 0 | the model was not called | "Check the LOCAL handling in llm_factory.py." |
+| Structured output returns `None` | the model is not suitable | "Switch the model to openai.gpt-5.4 in order_config.json." |
+| AI Compute errors with `InternalError` | the AI Lakehouse is stopped | Start the Lakehouse, then retry. |
 
 ## Cleanup
 
-* Keep `order_agent` deployed while it is being evaluated. Undeploying is
-  manual (UI); the tools never delete.
-* Stop `aicomp02` and the AI Lakehouse when no tests are planned.
+* The tools never delete. Keep `order_agent` deployed while it is being
+  evaluated, and undeploy it manually from the UI when you are done.
+* Stop `aicomp02` and the AI Lakehouse when no tests are planned:
+
+  ```text
+  Stop the AI Compute aicomp02.
+  ```
+
+  The Lakehouse is stopped from the OCI console.
 
 ## Validation record
 
-To be filled in after the first full run:
-* the date;
-* the model;
-* the results of steps 4, 6, and 7;
-* the deviations from this recipe.
-
-This record is the input for the agent-authoring skill.
+To be filled in by step 10.
