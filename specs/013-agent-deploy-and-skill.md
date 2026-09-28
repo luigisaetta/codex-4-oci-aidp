@@ -404,3 +404,23 @@ Offline verification completed in the `codex-4-oci-aidp` Conda environment:
 No live call was made: the manual verification listed above remains pending
 explicit authorization and is intentionally outside this read-only
 implementation step.
+
+### Execution-plan step 2 — 2026-09-28
+
+Implemented the read-only `deploy_aidp_agent` planner and MCP tool. It
+requires an exact CODE agent, verifies its configured entry and optional
+dependency files, resolves an exact ACTIVE AI Compute, and selects only a
+safe PROD deployment action. The plan ignores deleted deployments and does
+not let unrelated TEST deployments alter a valid PROD redeploy decision.
+Ambiguous, creating, failed, inactive, or multiply-PROD states stop with the
+states found. `apply=true` is rejected locally until step 3, so this commit
+cannot submit a deployment.
+
+Offline verification completed in the `codex-4-oci-aidp` Conda environment:
+
+* `pytest -q` — 289 passed;
+* `pylint aidp_common aidp_mcp tests` — 10.00/10;
+* Black check and `git diff --check` passed.
+
+No live call was made; manual verification remains pending explicit
+authorization.

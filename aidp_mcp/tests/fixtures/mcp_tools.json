@@ -140,6 +140,38 @@
     "name": "list_aidp_async_operations"
   },
   {
+    "description": "AI DP agent deploy: plan deployment by default.\n\nThe read-only plan verifies a CODE agent and an already ACTIVE AI Compute.\n`apply=true` deployment, redeployment, and waiting are introduced in the\nnext execution-plan step; nothing is deleted by either step.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_name": {
+          "type": "string"
+        },
+        "apply": {
+          "default": false,
+          "type": "boolean"
+        },
+        "compute_name": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 300,
+          "type": "integer"
+        },
+        "wait": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent_name",
+        "compute_name"
+      ],
+      "type": "object"
+    },
+    "name": "deploy_aidp_agent"
+  },
+  {
     "description": "AI DP agent sessions: bounded and newest-first for one exact-name agent.\n\nThis read-only tool matches case-sensitively and returns metadata only.",
     "inputSchema": {
       "additionalProperties": false,

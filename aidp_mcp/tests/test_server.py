@@ -134,7 +134,7 @@ def test_async_operations_client_uses_instance_scope_and_datetime_timestamps(
     assert managed.call_args_list[-1].kwargs["preserve_timestamps"] is False
 
 
-def test_server_registers_the_twenty_one_scoped_tools():
+def test_server_registers_the_twenty_two_scoped_tools():
     """The MCP schema exposes the specified tools without cloud access."""
     names = {tool.name for tool in asyncio.run(MCP.list_tools())}
 
@@ -144,6 +144,7 @@ def test_server_registers_the_twenty_one_scoped_tools():
         "list_aidp_agents",
         "get_aidp_agent",
         "list_aidp_async_operations",
+        "deploy_aidp_agent",
         "list_aidp_agent_sessions",
         "get_aidp_agent_session_messages",
         "get_aidp_agent_trace",
@@ -194,6 +195,7 @@ def test_aidp_mcp_modules_import_in_a_fresh_interpreter():
         "aidp_mcp.targets",
         "aidp_mcp.workspace_files",
         "aidp_mcp.agents",
+        "aidp_mcp.agent_deploy",
         "aidp_mcp.operations_status",
         "aidp_mcp.notebooks",
         "aidp_mcp.jobs",

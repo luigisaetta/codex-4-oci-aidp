@@ -10,6 +10,7 @@ from fastmcp import FastMCP
 
 from aidp_mcp import (
     agent_code,
+    agent_deploy,
     agent_invoke,
     agents,
     clusters,
@@ -100,6 +101,31 @@ def list_aidp_async_operations(
         status=status,
         name_contains=name_contains,
         max_results=max_results,
+    )
+
+
+@MCP.tool()
+def deploy_aidp_agent(
+    agent_name: str,
+    compute_name: str,
+    *,
+    apply: bool = False,
+    wait: bool = True,
+    timeout_seconds: int = 300,
+) -> dict:
+    """AI DP agent deploy: plan deployment by default.
+
+    The read-only plan verifies a CODE agent and an already ACTIVE AI Compute.
+    `apply=true` deployment, redeployment, and waiting are introduced in the
+    next execution-plan step; nothing is deleted by either step.
+    """
+    return agent_deploy.deploy_agent(
+        _settings(),
+        agent_name,
+        compute_name,
+        apply=apply,
+        wait=wait,
+        timeout_seconds=timeout_seconds,
     )
 
 
