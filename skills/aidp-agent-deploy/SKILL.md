@@ -27,7 +27,9 @@ supplied to MCP upload tools must be absolute.
    even when no other agent definition changed.
 6. Agree on a deterministic smoke-test message and expected answer. Obtain
    approval, then call `invoke_aidp_agent` with `confirm_invoke=true`. Compare
-   the answer with the expected result.
+   the answer with the expected result. For agents that call a model, choose
+   a message whose correct answer requires the model. Token counts and
+   per-node spans are not reliable evidence on AI DP; see troubleshooting.
 7. Report the endpoint, session ID, and trace summary. For any failure, read
    [troubleshooting](references/troubleshooting.md).
 

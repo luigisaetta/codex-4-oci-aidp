@@ -190,8 +190,12 @@ message "Please ship a dozen A4 notebooks."
 2. **agent plan:** a new agent is created;
 3. **deploy plan:** a first deployment; after approval it is ready in about
    45 seconds;
-4. **check:** the answer confirms 12 A4 notebooks, and the token count is
-   above 0, which proves that the model was called on AI DP.
+4. **check:** the answer confirms 12 A4 notebooks. This proves that the model
+   was called on AI DP: only the model can turn "a dozen" into 12.
+
+Do not use the token count as evidence. On AI DP, for requests that call the
+model through `aidputils`, the usage is reported as 0 and appears on the
+*next* request (verified 2026-09-28).
 
 If Codex does not follow this flow on its own, repeat the request starting
 with `$aidp-agent-deploy`, and note it in the validation record.
@@ -203,14 +207,20 @@ to confirm that AI DP behaves like the laptop.
 
 ```text
 Send the five messages from the laptop test to the deployed order_agent and
-compare every answer with the laptop result. For each one, show the answer,
-the tokens used and the steps recorded in the trace.
+compare every answer with the laptop result. For each one, show the answer
+and the trace summary.
 ```
 
 **Expected result:**
 * the same five outcomes as step 5;
-* tokens above 0;
-* each trace shows the agent's steps and their durations.
+* the model-only cases are right: "twelve" → 12 in message 2, and "a dozen" →
+  12 in message 3. This is the evidence that the model runs on AI DP;
+* the traces show at least the `agent_invoke` span.
+
+Current platform behavior (verified 2026-09-28): for requests that call the
+model through `aidputils`, the per-node LangGraph spans are missing and the
+token usage is reported as 0, then attributed to the next request. Treat
+tokens and node spans as informational, not as pass or fail criteria.
 
 ## 8. Change the data and update the agent
 
@@ -359,7 +369,8 @@ facts verified on AI DP on 2026-09-28; see
 | Works on the laptop, fails on AI DP with "file not found" | data read from the wrong place | "Load the data files from inventory.py's own location, test the AI DP arrangement, and redeploy." |
 | AI DP returns `AIDP_USER_CODE_EXECUTION_ERROR` | a bug in the code; details are hidden | "Reproduce this message on my laptop with the AI DP arrangement and fix it." |
 | The deployed agent still behaves the old way | no new deployment after the upload | "Redeploy order_agent and check it again." |
-| Token count is 0 | the model was not called | "Check that the agent uses llm_factory unchanged." |
+| Token count is 0, or only the `agent_invoke` span appears | current AI DP behavior for requests that call the model through `aidputils`: usage is reported on the next request, and node spans are dropped | Nothing to fix in the agent. Check model use through a model-only case, such as "a dozen" → 12 |
+| `get_aidp_agent_trace` returns no spans | the trace API returned empty right after the invocation (observed for agents that call the model) | Use the inline trace summary returned by `invoke_aidp_agent` |
 | Every request answers "service unavailable" | the model call fails (configuration, region, or permissions) | "Run the agent on my laptop with the real model and show the model error logged by llm_factory." |
 | The model never understands the request | model not suitable | "Use openai.gpt-5.4 in llm_config.json." |
 | AI Compute errors with `InternalError` | the AI Lakehouse is stopped | Start the Lakehouse, then retry. |
@@ -397,3 +408,4 @@ safe helper, the standard contract tests, and the "Rules for every agent" in
 | Step 5: the local runner could not import the agent's sibling modules | `local_harness` reproduces the AI DP layout by default |
 | Step 5: Codex used the system Python, without `langchain_oci` | the "Python environment" rule in `agents-4-ai-dp/AGENTS.md` |
 | Step 5: the first model call timed out in the sandbox | the rule "request network access before the first real call" |
+| Step 6: "token count above 0" was used as proof that the model ran, but AI DP reported 0 | smoke-test criteria based on model-only answers ("a dozen" → 12); tokens and node spans are informational only |
