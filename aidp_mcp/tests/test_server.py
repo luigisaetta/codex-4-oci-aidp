@@ -1,6 +1,6 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-27
+Date last modified: 2026-09-28
 License: MIT
 Description: Offline tests for the AI DP MCP adapter and tool contract.
 """
@@ -97,7 +97,44 @@ def test_mcp_workbench_clients_preserve_numeric_timestamps(monkeypatch):
     ] == [None, None]
 
 
-def test_server_registers_the_twenty_scoped_tools():
+def test_async_operations_client_uses_instance_scope_and_datetime_timestamps(
+    monkeypatch,
+):
+    """Async-operation observation needs no workspace and keeps datetimes."""
+    settings = SimpleNamespace(
+        endpoint=None,
+        compartment="compartment",
+        instance_id=None,
+        workspace_name=None,
+    )
+    identity, control, operations = Mock(), Mock(), Mock()
+    managed = Mock(side_effect=[identity, control, operations])
+
+    monkeypatch.setattr(
+        targets, "load_auth", Mock(return_value=({"tenancy": "tenancy"}, {}))
+    )
+    monkeypatch.setattr(targets, "managed_client", managed)
+    monkeypatch.setattr(
+        targets, "resolve_compartment", Mock(return_value="compartment")
+    )
+    monkeypatch.setattr(
+        targets,
+        "list_instances",
+        Mock(return_value=[SimpleNamespace(id="instance")]),
+    )
+
+    with targets.async_operations_clients(settings) as actual:
+        assert actual == ("instance", operations)
+
+    assert [call.args[1] for call in managed.call_args_list] == [
+        targets.oci.identity.IdentityClient,
+        targets.oci.ai_data_platform.AiDataPlatformClient,
+        targets.AsyncOperationsClient,
+    ]
+    assert managed.call_args_list[-1].kwargs["preserve_timestamps"] is False
+
+
+def test_server_registers_the_twenty_one_scoped_tools():
     """The MCP schema exposes the specified tools without cloud access."""
     names = {tool.name for tool in asyncio.run(MCP.list_tools())}
 
@@ -106,6 +143,7 @@ def test_server_registers_the_twenty_scoped_tools():
         "list_notebooks",
         "list_aidp_agents",
         "get_aidp_agent",
+        "list_aidp_async_operations",
         "list_aidp_agent_sessions",
         "get_aidp_agent_session_messages",
         "get_aidp_agent_trace",
@@ -156,6 +194,7 @@ def test_aidp_mcp_modules_import_in_a_fresh_interpreter():
         "aidp_mcp.targets",
         "aidp_mcp.workspace_files",
         "aidp_mcp.agents",
+        "aidp_mcp.operations_status",
         "aidp_mcp.notebooks",
         "aidp_mcp.jobs",
         "aidp_mcp.clusters",

@@ -1,6 +1,6 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-27
+Date last modified: 2026-09-28
 License: MIT
 Description: AI DP target discovery and process-lifetime target cache.
 """
@@ -14,6 +14,7 @@ from aidp_python_client.aidataplatform_dp import (
     CatalogClient,
     ClusterClient,
     AgentClient,
+    AsyncOperationsClient,
     NotebookClient,
     SchemaClient,
     VolumeClient,
@@ -276,6 +277,47 @@ def catalog_clients(settings):
             for client_class in (CatalogClient, SchemaClient, VolumeClient)
         )
         yield target.instance_id, catalogs, schemas, volumes
+    except oci.exceptions.ServiceError as exc:
+        if cache_hit and exc.status == 404:
+            _clear_target_cache_entry(cache_key)
+        raise
+    finally:
+        resources.close()
+
+
+@contextmanager
+def async_operations_clients(settings):
+    """Create a request-scoped client for instance-scoped async-operation reads.
+
+    Async-operation timestamps must be deserialized as datetimes so the
+    observation tool can calculate a duration. Unlike workbench resources
+    that have returned numeric timestamps, this endpoint's documented SDK
+    model provides datetime values.
+    """
+    config, options = load_auth(settings)
+    workbench_options = dict(options)
+    if settings.endpoint:
+        workbench_options["service_endpoint"] = settings.endpoint
+    resources = ExitStack()
+    cache_key = None
+    cache_hit = False
+    try:
+        target, cache_key, cache_hit = _resolve_target(
+            settings,
+            config,
+            options,
+            workbench_options,
+            resources,
+            need_workspace=False,
+        )
+        operations = managed_client(
+            resources,
+            AsyncOperationsClient,
+            config,
+            workbench_options,
+            preserve_timestamps=False,
+        )
+        yield target.instance_id, operations
     except oci.exceptions.ServiceError as exc:
         if cache_hit and exc.status == 404:
             _clear_target_cache_entry(cache_key)

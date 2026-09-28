@@ -1,8 +1,9 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-27
+Date last modified: 2026-09-28
 License: MIT
-Description: Stdio MCP server exposing scoped AI DP notebook, cluster, and volume tools.
+Description: Stdio MCP server exposing scoped AI DP notebook, agent, cluster,
+and volume tools.
 """
 
 from fastmcp import FastMCP
@@ -14,6 +15,7 @@ from aidp_mcp import (
     clusters,
     jobs,
     notebooks,
+    operations_status,
     volumes,
 )
 from aidp_mcp.config import load_connection_settings
@@ -76,6 +78,29 @@ def get_aidp_agent(agent_name: str) -> dict:
     case-sensitively; it does not change the agent or its deployments.
     """
     return agents.get_agent(_settings(), agent_name)
+
+
+@MCP.tool()
+def list_aidp_async_operations(
+    resource_type: str,
+    *,
+    status: str | None = None,
+    name_contains: str | None = None,
+    max_results: int = 25,
+) -> dict:
+    """AI DP async operations: list bounded, redacted instance operations.
+
+    `resource_type` is one of `AGENT`, `AI_COMPUTE`, or `CLUSTER`; optional
+    `name_contains` is a case-sensitive local display-name filter. This tool
+    is read-only and never returns creator OCIDs or the `created_by` field.
+    """
+    return operations_status.list_async_operations(
+        _settings(),
+        resource_type,
+        status=status,
+        name_contains=name_contains,
+        max_results=max_results,
+    )
 
 
 @MCP.tool()

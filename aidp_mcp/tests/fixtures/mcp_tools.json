@@ -98,6 +98,48 @@
     "name": "get_aidp_agent"
   },
   {
+    "description": "AI DP async operations: list bounded, redacted instance operations.\n\n`resource_type` is one of `AGENT`, `AI_COMPUTE`, or `CLUSTER`; optional\n`name_contains` is a case-sensitive local display-name filter. This tool\nis read-only and never returns creator OCIDs or the `created_by` field.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_results": {
+          "default": 25,
+          "type": "integer"
+        },
+        "name_contains": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "resource_type": {
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "resource_type"
+      ],
+      "type": "object"
+    },
+    "name": "list_aidp_async_operations"
+  },
+  {
     "description": "AI DP agent sessions: bounded and newest-first for one exact-name agent.\n\nThis read-only tool matches case-sensitively and returns metadata only.",
     "inputSchema": {
       "additionalProperties": false,

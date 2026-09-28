@@ -385,4 +385,22 @@ describing the blocker in "Verification evidence".
 
 ## Verification evidence
 
-Pending implementation.
+### Execution-plan step 1 — 2026-09-28
+
+Implemented the read-only `AsyncOperationsClient` context and
+`list_aidp_async_operations` MCP tool. The context resolves only the selected
+instance (not a workspace) and retains documented datetime timestamps for
+`duration_s`. The tool restricts resource types and statuses before any SDK
+call, uses a page size no greater than 100, requests newest-first service
+ordering, obtains detail records for bounded error fields, masks OCIDs, and
+does not return `created_by`.
+
+Offline verification completed in the `codex-4-oci-aidp` Conda environment:
+
+* `pytest -q` — 273 passed;
+* `pylint aidp_common aidp_mcp tests` — 10.00/10;
+* Black applied to the changed Python files; `git diff --check` passed.
+
+No live call was made: the manual verification listed above remains pending
+explicit authorization and is intentionally outside this read-only
+implementation step.
