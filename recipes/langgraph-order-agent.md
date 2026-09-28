@@ -25,6 +25,9 @@ recipe explains what happens and what result to expect.
 * Open a **new Codex session** in `/Users/lsaetta/Progetti/agents-4-ai-dp`.
 * When Codex shows a plan and asks for approval, read it and answer
   **"approved"**, or say what to change.
+* **Network access.** Codex sessions are sandboxed. Steps that call the real
+  model (5) or AI DP (6–9) need network access, and Codex asks for it: grant
+  it.
 
 ---
 
@@ -143,6 +146,10 @@ in "Local checks" of AGENTS.md.
 Generative AI model. It verifies that the model understands the requests
 well before anything is deployed.
 
+Codex uses the `agents-4-ai-dp` environment and asks for network access; grant
+it. Each message is one run of the local runner, which reproduces the AI DP
+file layout.
+
 ```text
 Try the order agent on my laptop with the real model (local mode, my OCI
 profile) with these messages and show each answer:
@@ -166,7 +173,8 @@ profile) with these messages and show each answer:
 ## 6. Deploy to AI DP
 
 **What it does:** a generic request that names neither a skill nor a tool.
-Codex should use the `aidp-agent-deploy` skill. It checks that the tests pass,
+Codex should use the `aidp-agent-deploy` skill. The `aidp-mcp` tools call AI
+DP, so grant network access if Codex asks for it. It checks that the tests pass,
 then uploads the code, creates the agent, checks the compute, deploys, and
 runs a first check. It asks for your approval before each change.
 
@@ -325,8 +333,18 @@ facts verified on AI DP on 2026-09-28; see
 * **Code checks:** Black, and Pylint 10.00/10, run inside each agent folder
   (see "Local checks" in `agents-4-ai-dp/AGENTS.md`). Do not add Pylint
   disables in agent code.
-* **Local run:** `LOCAL=true` and `OCI_PROFILE` from the user's environment;
-  `scripts/run_local.py` needs the agent folder on `PYTHONPATH`.
+* **Environment:** always use the Conda environment `agents-4-ai-dp` (see
+  "Python environment" in `agents-4-ai-dp/AGENTS.md`). Never fall back to the
+  system Python.
+* **Network:** real model calls and `aidp-mcp` tool calls need network access.
+  In a sandboxed session, request it before the first such command instead of
+  retrying after a timeout.
+* **Local run:** `LOCAL=true python scripts/run_local.py
+  agents/order_agent/order_agent.py "<message>"`, with `OCI_PROFILE` from the
+  user's environment.
+  * The runner reproduces the AI DP layout (`app/` and `user_code.py`), so no
+    `PYTHONPATH` is needed.
+  * Do not import the agent by hand as a workaround.
 * **Dependencies:** the agent's `requirements.txt` lists no packages. The
   needed libraries are preinstalled on AI DP (LangGraph 1.2.4, langchain
   1.3.9, langchain-core 1.4.6, langchain-oci 0.3.1, pydantic 2.13.5).
@@ -376,3 +394,6 @@ safe helper, the standard contract tests, and the "Rules for every agent" in
 | "USB C chargers" was not recognized | the tolerant-matching requirement in step 3 |
 | Pylint below 10 | the code-check rule |
 | The business tests passed only with `PYTHONPATH` set by hand | the `agent_modules` fixture + the rule "plain `pytest` from the repository root" |
+| Step 5: the local runner could not import the agent's sibling modules | `local_harness` reproduces the AI DP layout by default |
+| Step 5: Codex used the system Python, without `langchain_oci` | the "Python environment" rule in `agents-4-ai-dp/AGENTS.md` |
+| Step 5: the first model call timed out in the sandbox | the rule "request network access before the first real call" |
