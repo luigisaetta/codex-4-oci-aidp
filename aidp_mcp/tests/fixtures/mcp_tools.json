@@ -248,7 +248,7 @@
     "name": "ensure_aidp_agent"
   },
   {
-    "description": "AI DP agent invoke: send one message to an exact-name deployed agent; confirmation is required.\n\nThis creates a platform session and can consume compute or trigger agent\ntools with side effects. Set `confirm_invoke=true` only when authorized.\nThe agent name is exact and case-sensitive; the message is limited to\n20,000 characters and returned text to 100,000 characters.",
+    "description": "AI DP agent invoke: send one message to an exact-name deployed agent; confirmation is required.\n\nThis creates a platform session and can consume compute or trigger agent\ntools with side effects. Set `confirm_invoke=true` only when authorized.\nThe agent name is exact and case-sensitive; the message is limited to\n20,000 characters and returned text to 100,000 characters. When\n`session_key` is supplied, it is sent only as the `x-session-id`\nheader to request session continuation.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

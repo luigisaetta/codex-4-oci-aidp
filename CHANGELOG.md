@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-28: Continue AI DP agent sessions only through the observed
+  `x-session-id` request header, omit ignored body session fields, and report
+  whether the returned session was reused.
+
 * 2026-09-28: Parse the verified AI DP `/chat` `output_text.traces` response
   shape, returning bounded answer text, sanitized trace/session metadata,
   token usage, and a bounded reported agent error when present.

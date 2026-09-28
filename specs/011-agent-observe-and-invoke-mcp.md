@@ -176,7 +176,9 @@ Safety:
   in `/agentendpoint/<agent-key>`, append exactly `/chat`. Reject every other
   path, including an A2A path, with an actionable error. Disable redirects.
 * `message` must be nonempty and at most 20,000 characters. Validate
-  `session_key` as a single path segment when given.
+  `session_key` as a single path segment when given. It is sent only as the
+  `x-session-id` request header, which the deployed service uses to continue a
+  session; no request-body session field is sent.
 * Bound `timeout_seconds` to between 1 and 600.
 
 Transport:
@@ -188,9 +190,9 @@ Transport:
   pin-consistency test green.
 * Do not use `oci._vendor` or other private modules.
 * Request body:
-  `{"isStreamEnabled": false, "input": [{"role": "User", "content": [{"type": "INPUT_TEXT", "text": message}]}]}`,
-  plus `"sessionKey": session_key` when given. No `metadata` in this
-  specification.
+  `{"isStreamEnabled": false, "input": [{"role": "User", "content": [{"type": "INPUT_TEXT", "text": message}]}]}`.
+  It contains no session or `metadata` fields. When given, `session_key` is
+  sent only as request header `x-session-id`.
 
 Response:
 
@@ -204,6 +206,9 @@ Response:
     serialized `trace` content items;
   * `trace_id` from `output_text.traces.id`, and `session_id` and
     `session_key` from `output_text.traces.parentSessionId`;
+  * `session_reused`: `true` or `false` when `session_key` was requested,
+    according to whether the returned session identifier equals it; otherwise
+    `null`;
   * `trace_summary`: at most 1,000 sanitized trace spans with `span_name`, a
     normalized kind name, bounded `status` (`code`, `message`), and
     nanosecond-derived `duration_ms`; exclude attributes and non-error events;
@@ -289,8 +294,9 @@ Manual verification, explicit and recorded without OCIDs:
 3. `invoke_aidp_agent` with `message="Hi there"` and `confirm_invoke=true`.
    * Expected text: `hello world - you said: Hi there`.
    * Record `response_keys` and where the session key was found.
-4. A second `invoke_aidp_agent` call with the returned `session_key`: record
-   whether the session is reused.
+4. A second `invoke_aidp_agent` call with the returned `session_key`: verify
+   it is sent only as `x-session-id`, record `session_reused`, and confirm the
+   returned trace parent session identifier.
 5. `list_aidp_agent_sessions`, `get_aidp_agent_session_messages`, and, if a
    trace key can be found, `get_aidp_agent_trace`: record where the trace key
    came from.
@@ -475,3 +481,29 @@ describing the blocker in "Verification evidence".
   span attribute reaches the result. Local quality-gate results are recorded
   after this correction: 263 tests passed, Black was clean, Pylint scored
   10.00/10, and `git diff --check` was clean.
+
+2026-09-28, manual test D session continuation:
+
+* Question tested: which request mechanism continues a session on the deployed
+  `hello_world_api` agent (specification acceptance criterion: a supplied
+  `session_key` continues the returned session). The observed response signal
+  was `output_text.traces.parentSessionId`. This was one remote run and does
+  not establish behavior for every agent type.
+
+| Variant | Placement of requested session identifier | Observed result |
+| --- | --- | --- |
+| `x-session-id` | HTTP request header | Continued the session: returned `parentSessionId` equaled the requested identifier. |
+| `sessionKey` | Request body | Ignored; a new session was created. |
+| `sessionId` | Request body | Ignored; a new session was created. |
+| `previous_response_id` | Request body | Ignored; a new session was created. |
+| `previousResponseId` | Request body | Ignored; a new session was created. |
+
+* Based on this live comparison, `invoke_aidp_agent` validates `session_key`
+  as before, sends it only as `x-session-id`, omits all body session fields,
+  and reports `session_reused` by comparing the returned session identifier.
+  The relevant remote call was intentionally user-authorized; no resource was
+  created, modified, or deleted beyond the platform session created by
+  invocation. Local mocked tests cover the header and body contract. Final
+  local verification passed: 263 tests, Black clean, Pylint 10.00/10, and
+  `git diff --check` clean. The MCP snapshot was intentionally updated only
+  for the changed `invoke_aidp_agent` description.

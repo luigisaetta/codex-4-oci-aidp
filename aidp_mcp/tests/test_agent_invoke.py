@@ -170,8 +170,8 @@ def test_active_chat_endpoint_rejects_non_chat_agent_path():
         )
 
 
-def test_invoke_agent_sends_documented_request_without_redirects(monkeypatch):
-    """The signed request uses the active endpoint, exact body, and timeout."""
+def test_invoke_agent_sends_session_header_without_a_body_session_field(monkeypatch):
+    """A requested session goes only in the observed continuation header."""
     client = _invoke_client([_deployment()])
     session = Mock()
     session.post.return_value = _successful_response(
@@ -195,6 +195,7 @@ def test_invoke_agent_sends_documented_request_without_redirects(monkeypatch):
     )
 
     assert result["session_key"] == "session-id"
+    assert result["session_reused"] is False
     session.post.assert_called_once_with(
         "https://gateway.aidp.example.oraclecloud.com/agentendpoint/id/chat",
         auth="s",
@@ -206,10 +207,10 @@ def test_invoke_agent_sends_documented_request_without_redirects(monkeypatch):
                     "content": [{"type": "INPUT_TEXT", "text": "Hi there"}],
                 }
             ],
-            "sessionKey": "existing-session",
         },
         timeout=42,
         allow_redirects=False,
+        headers={"x-session-id": "existing-session"},
     )
     session.close.assert_called_once_with()
 
@@ -288,6 +289,7 @@ def test_invoke_agent_bounds_response_text_and_reports_observable_keys(monkeypat
         "response_keys": ["error", "metadata", "model", "object", "output", "usage"],
         "trace_id": "trace-id",
         "session_id": "trace-session",
+        "session_reused": None,
         "trace_summary": [
             {
                 "span_name": "respond.task",

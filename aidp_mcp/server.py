@@ -182,7 +182,9 @@ def invoke_aidp_agent(
         "This creates a platform session and can consume compute or trigger agent\n"
         "tools with side effects. Set `confirm_invoke=true` only when authorized.\n"
         "The agent name is exact and case-sensitive; the message is limited to\n"
-        "20,000 characters and returned text to 100,000 characters."
+        "20,000 characters and returned text to 100,000 characters. When\n"
+        "`session_key` is supplied, it is sent only as the `x-session-id`\n"
+        "header to request session continuation."
     )
     return agent_invoke.invoke_agent(
         _settings(),

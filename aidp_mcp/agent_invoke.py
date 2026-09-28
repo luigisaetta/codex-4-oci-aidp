@@ -84,8 +84,10 @@ def invoke_agent(
         )
     endpoint = _active_chat_endpoint(deployments)
     _, options = load_auth(settings)
-    body = _invoke_request_body(message, session_key)
-    response = _post_agent_message(endpoint, options["signer"], body, timeout_seconds)
+    body = _invoke_request_body(message)
+    response = _post_agent_message(
+        endpoint, options["signer"], body, timeout_seconds, session_key
+    )
     if not 200 <= response.status_code < 300:
         raise AidpError(
             "Agent invocation returned HTTP "
@@ -94,6 +96,7 @@ def invoke_agent(
     response_body = _json_response(response)
     text, truncated = _response_text(response_body, max_characters)
     trace = _inline_trace(response_body)
+    response_session_id = _trace_session_id(trace)
     response_session_key = _trace_session_id(trace) or _response_session_key(
         response_body, response.headers
     )
@@ -111,7 +114,10 @@ def invoke_agent(
         "truncated": truncated,
         "response_keys": sorted(response_body),
         "trace_id": _trace_id(trace),
-        "session_id": _trace_session_id(trace),
+        "session_id": response_session_id,
+        "session_reused": (
+            response_session_id == session_key if session_key is not None else None
+        ),
         "trace_summary": _trace_summary(trace),
         "usage": _usage(response_body),
     }
@@ -194,9 +200,9 @@ def _is_valid_agent_endpoint(parsed, hostname):
     )
 
 
-def _invoke_request_body(message, session_key):
-    """Build the documented non-streaming chat request without metadata."""
-    body = {
+def _invoke_request_body(message):
+    """Build the non-streaming chat request without session or metadata fields."""
+    return {
         "isStreamEnabled": False,
         "input": [
             {
@@ -205,21 +211,27 @@ def _invoke_request_body(message, session_key):
             }
         ],
     }
-    if session_key is not None:
-        body["sessionKey"] = session_key
-    return body
 
 
-def _post_agent_message(endpoint, signer, body, timeout_seconds):
-    """Send one signed, non-redirected request without retries."""
+def _post_agent_message(endpoint, signer, body, timeout_seconds, session_key=None):
+    """Send one signed, non-redirected request without retries.
+
+    An existing session is supplied only in the observed ``x-session-id``
+    header; body session fields create a new session on the deployed service.
+    """
     session = requests.Session()
     try:
+        request_options = {
+            "auth": signer,
+            "json": body,
+            "timeout": timeout_seconds,
+            "allow_redirects": False,
+        }
+        if session_key is not None:
+            request_options["headers"] = {"x-session-id": session_key}
         return session.post(
             endpoint,
-            auth=signer,
-            json=body,
-            timeout=timeout_seconds,
-            allow_redirects=False,
+            **request_options,
         )
     except requests.Timeout as error:
         raise AidpError(
