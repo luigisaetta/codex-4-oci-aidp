@@ -13,9 +13,10 @@ with guardrails.**
 `codex-4-oci-aidp` connects a coding agent to
 [Oracle AI Data Platform](https://docs.oracle.com/en/cloud/paas/ai-data-platform/)
 (AI DP). You write notebooks and LangGraph agents locally. Then you ask Codex
-to explore the platform, upload your work, create agents, and run jobs. Codex does this
-through a local MCP server that plans every change before making it and never
-mutates remote resources without your explicit confirmation.
+to explore the platform, upload your work, run notebook jobs, and deploy,
+invoke, and diagnose agents. Codex does this through a local MCP server that
+plans every change before making it and never mutates remote resources without
+your explicit confirmation.
 
 ![Develop locally with Codex, deploy to OCI AI Data Platform through a guarded MCP server](docs/images/overview.png)
 
@@ -63,10 +64,10 @@ Ask Codex, in plain language, for example:
 * *"Is my cluster running? If not, tell me what starting it implies."*
 * *"Show me the last runs of job `etl-nightly` and the output of the failed
   one."*
-* *"Upload my agent folder `agents/hello_world` to `/Workspace/hello_world` and
-  create the code-first agent `hello_world` from it."*
+* *"Update the hello world agent on AI DP with my latest code and check that it
+  works."*
 
-The MCP server exposes 20 tools, all listed in [aidp_mcp](aidp_mcp/README.md).
+The MCP server exposes 22 tools, all listed in [aidp_mcp](aidp_mcp/README.md).
 Read-only tools are the default; every change is planned first and applied
 only with an explicit flag.
 
@@ -92,10 +93,29 @@ only with an explicit flag.
 | Send a message to a deployed agent | `invoke_aidp_agent`, with `confirm_invoke=true`; the endpoint comes only from the agent's active deployment |
 | Follow the deployment and smoke-test procedure | the [`aidp-agent-deploy`](skills/aidp-agent-deploy/SKILL.md) skill |
 
-Upload and agent creation are verified on AI DP. The deployment tool and skill
-are locally verified; their live deploy/redeploy and invocation verification
-remain pending explicit authorization. Agent code lives in its own repository;
-list that folder in `AIDP_ALLOWED_ROOTS` so the server may upload from it.
+The full agent loop is **verified live on AI DP** (2026-09-28). A code change
+is tested locally, uploaded and verified, then redeployed, and the endpoint
+serves the new code:
+
+```text
+local tests → upload_aidp_agent_code → ensure_aidp_agent → deploy_aidp_agent → invoke_aidp_agent → sessions & traces
+```
+
+Agent code lives in its own repository; list that folder in
+`AIDP_ALLOWED_ROOTS` so the server may upload from it.
+
+### Good to know (verified on AI DP)
+
+* **Redeploy after every upload.** A deployment runs a copy of the code taken
+  at deploy time. A redeploy recreates the deployment in about 40 seconds and
+  keeps the endpoint URL stable.
+* **AI features need the AI DP Autonomous AI Lakehouse running.** While it was
+  stopped, AI Compute creation failed with a generic internal error.
+* **Agent errors are detected, not explained.** A failing agent returns HTTP
+  400 `AIDP_USER_CODE_EXECUTION_ERROR`. The exception text is not exposed
+  through sessions or traces, so reproduce failures with local contract tests.
+* **Conversations continue by session id.** `invoke_aidp_agent` sends the
+  session key as the `x-session-id` header, the only mechanism that worked.
 
 ## Roadmap
 
@@ -105,10 +125,11 @@ list that folder in `AIDP_ALLOWED_ROOTS` so the server may upload from it.
 | ✅ Done | Skills infrastructure and the first operational skill |
 | ✅ Done | Agent observation and guarded invocation tools |
 | ✅ Done | Agent code upload and draft agent creation, verified on AI DP |
-| ✅ Done | Plan-by-default code-agent deploy/redeploy, async-operation observation, and the `aidp-agent-deploy` workflow skill (offline verified) |
-| 🔜 Next | Verify deploy/redeploy and deterministic invocation live on AI Compute, including endpoint behavior during redeploy |
-| 🔜 Next | Agent authoring skills, based on verified facts |
+| ✅ Done | Agent deploy and redeploy, and async-operation observation, verified live on AI DP |
+| ✅ Done | `aidp-agent-deploy` workflow skill |
+| 🔜 Next | Behavioral verification of the skills with generic requests |
 | 🔜 Next | Agents that call OCI Generative AI models, with verified IAM policies |
+| 🔜 Next | Agent authoring skill: contract, LLM factory, local testing |
 
 ## Quick start
 
@@ -117,6 +138,7 @@ Prerequisites:
 * macOS or Linux with Conda;
 * an OCI API-key profile in `~/.oci/config`;
 * an AI DP instance and workspace you are allowed to use;
+* for agents, an ACTIVE AI Compute in that workspace;
 * Codex (CLI or IDE extension).
 
 **1. Install** into the project Conda environment. Oracle distributes the
@@ -193,6 +215,7 @@ aidp_common/     Shared OCI authentication, settings, and discovery
 skills/          Operational AI DP skills (installed at user scope)
 .agents/skills/  Skills for developing this repository
 specs/           Specifications and verification evidence
+docs/            Images and the demo script
 scripts/         Launchers and the skills installer
 cluster_lifecycle/, catalog_tree/   Command-line utilities
 notebooks/       Example notebooks
@@ -206,6 +229,7 @@ notebooks/       Example notebooks
 | `oci` | 2.165.1 | OCI configuration, request signing, and instance discovery (required range for SDK 4.2.1: `>=2.165.0,<2.166`) |
 | `fastmcp` | 3.4.5 | Local stdio MCP server |
 | `python-dotenv` | 1.2.3 | Shared `.env` settings |
+| `requests` | 2.34.2 | OCI-signed calls to deployed agent endpoints, as in Oracle's documented example |
 
 Development tools (Black, Pylint, pytest) are pinned in
 [requirements-dev.txt](requirements-dev.txt). No OCI CLI installation is
@@ -219,6 +243,9 @@ needed.
   and is excluded from Git.
 * Mutations require explicit flags that the model must set, and the skills
   require your approval in the conversation before each one.
+* Agent endpoints are taken only from the platform's active deployment; the
+  model can never choose a URL or host.
+* The tools never delete resources, files, deployments, or agents.
 * Local uploads are limited to operator-configured folders. The model cannot
   widen them.
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-28: Update the main README to the verified state: 22 MCP tools,
+  the full agent loop (upload, create, deploy, redeploy, invoke, observe)
+  verified live on AI DP, verified platform behaviors, and the roadmap.
+
 * 2026-09-28: Add plan-by-default code-agent deployment and redeployment,
   bounded async-operation observation, and the approval-gated
   `aidp-agent-deploy` operational workflow skill.
