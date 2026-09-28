@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-28: Preserve AI DP active-deployment endpoint URLs that already end
+  in `/chat`, append it only to supported agent-endpoint base paths, and reject
+  unsupported endpoint paths before invocation.
+
 * 2026-09-27: Document the AI DP agent capabilities in the main README: agent
   code upload, draft agent creation, observation and invocation tools, and
   the updated roadmap.

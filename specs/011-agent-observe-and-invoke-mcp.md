@@ -172,7 +172,9 @@ Safety:
   * a host ending in `.oraclecloud.com`;
   * no credentials, query, or fragment in the URL.
 
-  Append exactly `/chat`, handling a trailing slash. Disable redirects.
+  Use an endpoint path already ending in `/chat` unchanged. If the path ends
+  in `/agentendpoint/<agent-key>`, append exactly `/chat`. Reject every other
+  path, including an A2A path, with an actionable error. Disable redirects.
 * `message` must be nonempty and at most 20,000 characters. Validate
   `session_key` as a single path segment when given.
 * Bound `timeout_seconds` to between 1 and 600.
@@ -391,3 +393,23 @@ describing the blocker in "Verification evidence".
   that description; its schema and all other entries are unchanged.
 * No AI DP invocation was made for this follow-up; the result is locally
   verified with mocked SDK and HTTP clients.
+
+2026-09-28, live deployment finding and chat URL correction:
+
+* The deployed agent reported `lifecycle_state` `DEPLOYED`,
+  `deployment_mode` `DEPLOYED`, and `uri_state` `ACTIVE`. Its sole deployment
+  was `ACTIVE`, had `deployment_type` `PROD`, `deployment_version` `null`, and
+  an `endpoint_url` ending in `/chat`. The URL's `agentId` matched the agent
+  key. No OCIDs are recorded.
+* Attaching compute and testing in the Playground changed only
+  `compute_attached`; the observed deployment fields above were unchanged.
+* The live endpoint shape is
+  `https://gateway.aidp.eu-frankfurt-1.oci.oraclecloud.com/agentendpoint/<agent-key>/chat`.
+  Invocation now preserves that supported path rather than appending a second
+  `/chat`; it appends `/chat` only to a validated
+  `/agentendpoint/<agent-key>` path and rejects unsupported paths such as
+  `/a2a`.
+* Local verification passed: the full suite passed (259 tests), Black was
+  clean, Pylint scored 10.00/10, and `git diff --check` was clean. The new
+  offline coverage verifies the live `/agentendpoint/<agent-key>/chat` shape,
+  a base agent endpoint that needs `/chat`, and rejection of `/a2a`.

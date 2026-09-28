@@ -1,6 +1,6 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-27
+Date last modified: 2026-09-28
 License: MIT
 Description: Guarded OCI-signed invocation of deployed AI DP agents.
 """
@@ -145,7 +145,19 @@ def _active_chat_endpoint(deployments):
         raise AidpError(
             "The ACTIVE agent deployment returned an invalid Oracle HTTPS endpoint."
         )
-    return f"{endpoint_url.rstrip('/')}/chat"
+    return _chat_url(endpoint_url, parsed.path)
+
+
+def _chat_url(endpoint_url, path):
+    """Return a supported deployment chat URL without duplicating ``/chat``."""
+    if path.endswith("/chat"):
+        return endpoint_url
+    if re.fullmatch(r".*/agentendpoint/[^/]+", path):
+        return f"{endpoint_url}/chat"
+    raise AidpError(
+        "The ACTIVE agent deployment endpoint path must end with '/chat' or "
+        "'/agentendpoint/<agent-key>'; the deployment returned an unsupported path."
+    )
 
 
 def _is_valid_agent_endpoint(parsed, hostname):

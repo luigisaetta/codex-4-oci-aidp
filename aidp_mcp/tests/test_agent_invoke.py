@@ -1,6 +1,6 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-27
+Date last modified: 2026-09-28
 License: MIT
 Description: Offline tests for guarded AI DP deployed-agent invocation.
 """
@@ -123,6 +123,49 @@ def test_invoke_agent_rejects_unsafe_deployment_endpoints(monkeypatch, endpoint)
         )
 
     http_call.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "expected"),
+    [
+        (
+            "https://gateway.aidp.eu-frankfurt-1.oci.oraclecloud.com/"
+            "agentendpoint/agent-key/chat",
+            "https://gateway.aidp.eu-frankfurt-1.oci.oraclecloud.com/"
+            "agentendpoint/agent-key/chat",
+        ),
+        (
+            "https://gateway.aidp.example.oraclecloud.com/agentendpoint/agent-key",
+            "https://gateway.aidp.example.oraclecloud.com/agentendpoint/agent-key/chat",
+        ),
+    ],
+)
+def test_active_chat_endpoint_uses_supported_deployment_paths_unchanged_or_appended(
+    endpoint, expected
+):
+    """A deployed chat URL is preserved; a base agent endpoint gains ``/chat``."""
+    assert (
+        getattr(agent_invoke, "_active_chat_endpoint")(
+            [{"lifecycle_state": "ACTIVE", "endpoint_url": endpoint}]
+        )
+        == expected
+    )
+
+
+def test_active_chat_endpoint_rejects_non_chat_agent_path():
+    """A valid Oracle URL cannot invoke an unsupported endpoint such as A2A."""
+    with pytest.raises(AidpError, match="path must end with '/chat'"):
+        getattr(agent_invoke, "_active_chat_endpoint")(
+            [
+                {
+                    "lifecycle_state": "ACTIVE",
+                    "endpoint_url": (
+                        "https://gateway.aidp.example.oraclecloud.com/"
+                        "agentendpoint/agent-key/a2a"
+                    ),
+                }
+            ]
+        )
 
 
 def test_invoke_agent_sends_documented_request_without_redirects(monkeypatch):
