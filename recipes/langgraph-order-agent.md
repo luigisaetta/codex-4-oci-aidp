@@ -50,9 +50,11 @@ Then run the existing tests.
 
 ## 2. Create the agent project
 
-**What it does:** Codex creates the agent folder. It copies the ready-made
-**model connector** from the templates (`llm_factory.py`), which works both
-on your laptop and on AI DP, and sets up its configuration.
+**What it does:** Codex creates the agent folder and copies two ready-made
+pieces from the templates:
+* the **model connector** (`llm_factory.py`), which works both on your laptop
+  and on AI DP and never lets a model problem crash the agent;
+* the **standard tests** that every agent must pass.
 
 ```text
 Create a new agent called order_agent, following the "Rules for Codex" section
@@ -61,13 +63,17 @@ Copy llm_factory.py and llm_config.example.json from
 /Users/lsaetta/Progetti/codex-4-oci-aidp/templates/langgraph-agent into the
 agent folder and use llm_factory.py as is. Create llm_config.json with the
 compartment and endpoint of agents/env_probe/probe_config.json and the model
-openai.gpt-5.4, and keep it out of Git. Show me the folder when done.
+openai.gpt-5.4, and keep it out of Git. Copy test_agent_contract_template.py
+from the same templates folder to tests/test_order_agent_contract.py and set
+its three constants for this agent. Show me the folder when done.
 ```
 
 **Expected result:**
 * a new `agents/order_agent/` folder containing the model connector and its
   configuration;
-* `llm_config.json` is excluded from Git.
+* `llm_config.json` is excluded from Git;
+* `tests/test_order_agent_contract.py` exists. It fails for now, because the
+  agent does not exist yet.
 
 ## 3. Describe the agent's behavior
 
@@ -81,19 +87,24 @@ Build the order agent. It receives a customer message in English and must:
   model only for this);
 - look the product up in our catalog and check the warehouse stock, using
   the data in the "Catalog and warehouse" table of the recipe;
-- answer in English with one of four outcomes:
+- answer in English with one of five outcomes:
   1. confirmed: the product and quantity are available (mention the product
      code);
   2. not enough stock: say how many units are available;
   3. product not sold: we do not have it in the catalog;
   4. request not understood: it is not an order, or the quantity is missing
-     or invalid.
-Product names can be written in different ways (singular, plural, other
-spellings listed in the catalog). The agent must always answer, never crash.
+     or invalid;
+  5. service unavailable: the model cannot be reached; ask to try again
+     later.
+Recognize product names tolerantly: ignore upper/lower case, hyphens and
+extra spaces, accept singular and plural, and the other spellings listed in
+the catalog ("USB C chargers" is the USB-C charger). The agent must always
+answer, never crash.
 ```
 
 **Expected result:** Codex explains how it organized the agent, then creates
-the code:
+the code. The model is prepared once when the agent starts, and it is always
+called through the safe helper of the model connector:
 * one step that understands the request;
 * one step that checks the stock;
 * one step that writes the answer.
@@ -107,15 +118,22 @@ the LLM or the cloud. It also simulates how files are arranged on AI DP, so
 that deployment problems are caught on the laptop.
 
 ```text
-Test the order agent without calling the real model. Cover all four answers,
+Test the order agent without calling the real model. Cover all five answers,
 product names written in different ways, and tricky quantities: numbers in
-words, "a dozen", zero, negative, and missing. Also check that the agent
-still works with the file arrangement used on AI DP. Run the code checks too.
+words, "a dozen", zero, negative, and missing. The standard contract tests
+must pass unchanged. Also check that the agent still works with the file
+arrangement used on AI DP. Run the code checks too.
 ```
 
 **Expected result:**
-* all tests pass, including the AI DP file-arrangement check;
-* the code checks are clean.
+* all tests pass, including the **standard contract tests**:
+  * the model is created once;
+  * a failing model gets an answer;
+  * a malformed model answer gets an answer;
+  * the AI DP file layout works;
+  * `requirements.txt` is clean;
+* the code checks are clean: Black, and Pylint 10.00/10 with no disabled
+  checks.
 
 ## 5. Try it on the laptop with the real model
 
@@ -249,9 +267,17 @@ facts verified on AI DP on 2026-09-28; see
 `specs/014-agent-runtime-facts-and-knowledge.md`.
 
 * **Model access.** Use `templates/langgraph-agent/llm_factory.py` unchanged:
-  `from llm_factory import build_llm`. It reads `llm_config.json` next to
-  itself, uses `langchain_oci` when `LOCAL=true`, and `aidputils` on AI DP.
-  Do not import `langchain_oci` or `aidputils` anywhere else.
+  `from llm_factory import build_llm, call_model_safely`.
+  * It reads `llm_config.json` next to itself, uses `langchain_oci` when
+    `LOCAL=true`, and `aidputils` on AI DP.
+  * Do not import `langchain_oci` or `aidputils` anywhere else.
+* **Create the model once.** Call `build_llm()` in the agent's `setup()` and
+  pass the model into the graph builder. Tests pass a fake model the same
+  way.
+* **Call the model only through `call_model_safely(llm, schema, prompt)`.**
+  It never raises, and maps its error codes to answers:
+  * `model_unavailable` → "service unavailable, try again later";
+  * `invalid_model_output` → "request not understood".
 * **Workflow.** A LangGraph `StateGraph` with three nodes:
   * `understand` extracts `{product, quantity}` with structured output,
     through a pydantic model with optional fields;
@@ -263,9 +289,12 @@ facts verified on AI DP on 2026-09-28; see
 * **Empty extractions.** The model may return the *string* `"null"`, an empty
   string, or quantity `0` for non-orders. Treat an empty or `"null"` product,
   and a quantity that is missing or ≤ 0, as "request not understood".
-* **Never raise for business outcomes.** Return one of the four answers. Let
-  only genuine bugs raise, because AI DP hides exception details and reports
-  only `AIDP_USER_CODE_EXECUTION_ERROR`.
+* **Never raise for business outcomes or model problems.** Return one of the
+  five answers. Let only genuine bugs raise, because AI DP hides exception
+  details and reports only `AIDP_USER_CODE_EXECUTION_ERROR`.
+* **Tolerant matching** is a business requirement of this agent. Normalize
+  case, hyphens, and spaces, accept singular and plural, then compare with
+  names and aliases.
 * **Runtime layout.** On AI DP the entry file is renamed `user_code.py` and
   runs outside `app/`, which holds all the other files; `app/` is first on
   `sys.path`. Therefore:
@@ -275,14 +304,18 @@ facts verified on AI DP on 2026-09-28; see
   * load the data files from a sibling module through its own `__file__`
     (for example `inventory.py` loading `data/catalog.json` and
     `data/warehouse.json`).
-* **Layout test.** Reproduce the AI DP arrangement in one test:
-  1. copy the agent folder into a temporary `app/`;
-  2. copy the entry file to `user_code.py` in the parent;
-  3. put `app/` first on `sys.path` and set the working directory to the
-     parent;
-  4. load `user_code.py` and invoke the agent.
-* **Offline tests** use a fake model whose `with_structured_output(...)`
+* **Standard contract tests.** Copy
+  `templates/langgraph-agent/test_agent_contract_template.py` and set its
+  three constants.
+  * Do not weaken them.
+  * They load the agent in the AI DP layout (`app/` + `user_code.py`) with
+    fake models that fail, reject, or return garbage.
+  * They check that `build_llm()` runs once and that `requirements.txt` is
+    clean.
+* **Business tests** use a fake model whose `with_structured_output(...)`
   returns predefined results. No network.
+* **Code checks:** Black, and Pylint 10.00/10. Do not add Pylint disables in
+  agent code.
 * **Local run:** `LOCAL=true` and `OCI_PROFILE` from the user's environment;
   `scripts/run_local.py` needs the agent folder on `PYTHONPATH`.
 * **Dependencies:** the agent's `requirements.txt` lists no packages. The
@@ -300,6 +333,7 @@ facts verified on AI DP on 2026-09-28; see
 | AI DP returns `AIDP_USER_CODE_EXECUTION_ERROR` | a bug in the code; details are hidden | "Reproduce this message on my laptop with the AI DP arrangement and fix it." |
 | The deployed agent still behaves the old way | no new deployment after the upload | "Redeploy order_agent and check it again." |
 | Token count is 0 | the model was not called | "Check that the agent uses llm_factory unchanged." |
+| Every request answers "service unavailable" | the model call fails (configuration, region, or permissions) | "Run the agent on my laptop with the real model and show the model error logged by llm_factory." |
 | The model never understands the request | model not suitable | "Use openai.gpt-5.4 in llm_config.json." |
 | AI Compute errors with `InternalError` | the AI Lakehouse is stopped | Start the Lakehouse, then retry. |
 
@@ -318,3 +352,17 @@ facts verified on AI DP on 2026-09-28; see
 ## Validation record
 
 To be filled in by step 10.
+
+### Lessons learned (2026-09-28, first run up to step 3)
+
+The review of the first generated agent found these defects. They led to the
+safe helper, the standard contract tests, and the "Rules for every agent" in
+`agents-4-ai-dp/AGENTS.md`:
+
+| Defect | Now prevented by |
+| --- | --- |
+| A failing model crashed the agent | `call_model_safely` + contract test `fail` |
+| A model answer outside the schema crashed the agent | `call_model_safely` + contract test `reject` |
+| The model was re-created for every message | the rule "create the model in `setup()`" + contract test `test_model_is_created_once_in_setup` |
+| "USB C chargers" was not recognized | the tolerant-matching requirement in step 3 |
+| Pylint below 10 | the code-check rule |
