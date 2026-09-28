@@ -215,35 +215,50 @@ def test_invoke_agent_sends_documented_request_without_redirects(monkeypatch):
 
 
 def test_invoke_agent_bounds_response_text_and_reports_observable_keys(monkeypatch):
-    """Only agent text is returned; the observed inline trace is summarized."""
+    """The verified response shape yields sanitized text, trace, usage, and error."""
     client = _invoke_client([_deployment()])
     response = _successful_response(
         {
-            "responseId": "response-id",
+            "object": "response",
+            "model": "hello-world",
+            "error": {"code": "AGENT_FAILURE", "message": "agent warning"},
+            "usage": {"inputTokens": 4, "outputTokens": 5, "totalTokens": 9},
+            "metadata": {"private": "metadata"},
             "output": [
                 {
+                    "type": "message",
+                    "role": "assistant",
                     "content": [
-                        {"type": "agent_response", "text": "hello"},
-                        {"type": "text", "text": " world"},
                         {
-                            "type": "trace",
-                            "value": {
+                            "type": "output_text",
+                            "text": "hello world",
+                            "traces": {
                                 "id": "trace-id",
                                 "parentSessionId": "trace-session",
+                                "startTime": 1000000,
+                                "endTime": 2500000,
+                                "resources": [{"private": "resource"}],
                                 "spans": [
                                     {
                                         "spanName": "respond.task",
+                                        "kind": 1,
                                         "startTime": 1000000,
                                         "endTime": 2500000,
-                                        "status": {"code": "OK"},
+                                        "status": {"code": "OK", "message": "done"},
                                         "attributes": {"private": "data"},
+                                        "events": [
+                                            {
+                                                "name": "info",
+                                                "attributes": {"private": "data"},
+                                            }
+                                        ],
                                     }
                                 ],
                             },
                         },
-                    ]
+                        {"type": "trace", "text": "serialized private trace"},
+                    ],
                 },
-                {"content": [{"type": "other", "text": "!"}]},
             ],
         },
         {"X-Session-Key": "header-session"},
@@ -265,18 +280,26 @@ def test_invoke_agent_bounds_response_text_and_reports_observable_keys(monkeypat
     assert result == {
         "agent_name": "hello",
         "http_status": 200,
-        "response_id": "response-id",
+        "response_id": None,
         "session_key": "trace-session",
         "session_key_note": None,
         "text": "hello w",
         "truncated": True,
-        "response_keys": ["output", "responseId"],
+        "response_keys": ["error", "metadata", "model", "object", "output", "usage"],
         "trace_id": "trace-id",
         "session_id": "trace-session",
         "trace_summary": [
-            {"span_name": "respond.task", "status": "OK", "duration_ms": 1.5}
+            {
+                "span_name": "respond.task",
+                "kind": "INTERNAL",
+                "status": {"code": "OK", "message": "done"},
+                "duration_ms": 1.5,
+            }
         ],
+        "usage": {"input_tokens": 4, "output_tokens": 5, "total_tokens": 9},
+        "agent_error": {"code": "AGENT_FAILURE", "message": "agent warning"},
     }
+    assert "attributes" not in str(result["trace_summary"])
 
 
 def test_invoke_agent_serializes_real_sdk_models(monkeypatch):
@@ -297,7 +320,7 @@ def test_invoke_agent_serializes_real_sdk_models(monkeypatch):
         ]
     )
     response = _successful_response(
-        {"output": [{"content": [{"type": "agent_response", "text": "hello"}]}]}
+        {"output": [{"content": [{"type": "output_text", "text": "hello"}]}]}
     )
     monkeypatch.setattr(
         agent_invoke, "agent_clients", lambda _settings: _clients(client)

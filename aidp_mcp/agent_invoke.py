@@ -12,8 +12,10 @@ import requests
 
 from aidp_common.connection import AidpError, load_auth, validate_resource_key
 from aidp_mcp.agent_lookup import (
+    NANOSECONDS_PER_MILLISECOND,
     find_agent,
     list_deployments,
+    span_kind,
 )
 from aidp_mcp.lookups import resource_key
 from aidp_mcp.safety import require_confirmation
@@ -24,6 +26,8 @@ MAX_AGENT_MESSAGE_CHARACTERS = 20000
 MAX_INVOKE_TIMEOUT_SECONDS = 600
 MAX_MESSAGE_CHARACTERS = 100000
 MAX_ERROR_RESPONSE_CHARACTERS = 1000
+MAX_AGENT_ERROR_CHARACTERS = 1000
+MAX_TRACE_SPANS = 1000
 OCID_PATTERN = re.compile(
     r"ocid1\.[a-z0-9_-]+\.[a-z0-9_-]*\.[a-z0-9_-]*\.[A-Za-z0-9._-]+"
 )
@@ -93,7 +97,7 @@ def invoke_agent(
     response_session_key = _trace_session_id(trace) or _response_session_key(
         response_body, response.headers
     )
-    return {
+    result = {
         "agent_name": agent_name,
         "http_status": response.status_code,
         "response_id": _response_id(response_body),
@@ -109,7 +113,12 @@ def invoke_agent(
         "trace_id": _trace_id(trace),
         "session_id": _trace_session_id(trace),
         "trace_summary": _trace_summary(trace),
+        "usage": _usage(response_body),
     }
+    agent_error = _agent_error(response_body)
+    if agent_error is not None:
+        result["agent_error"] = agent_error
+    return result
 
 
 def _validate_agent_message(message):
@@ -273,7 +282,7 @@ def _response_session_key(response_body, headers):
 
 
 def _response_text(response_body, max_characters):
-    """Extract only answer-text content, excluding inline trace payloads."""
+    """Extract only observed ``output_text`` content, excluding trace items."""
     text_parts = []
     for output in response_body.get("output", []):
         if not isinstance(output, dict):
@@ -281,7 +290,7 @@ def _response_text(response_body, max_characters):
         for content in output.get("content", []):
             if (
                 isinstance(content, dict)
-                and _is_agent_answer(content)
+                and content.get("type") == "output_text"
                 and isinstance(content.get("text"), str)
             ):
                 text_parts.append(content["text"])
@@ -289,27 +298,19 @@ def _response_text(response_body, max_characters):
     return text[:max_characters], len(text) > max_characters
 
 
-def _is_agent_answer(content):
-    """Return whether content is an observed agent-response text item."""
-    content_type = content.get("type")
-    return content_type in ("agent_response", "text", "TEXT", "AGENT_RESPONSE")
-
-
 def _inline_trace(response_body):
-    """Return the first observed inline trace mapping without traversing data."""
+    """Return ``output_text.traces`` from the verified deployed-agent shape."""
     for output in response_body.get("output", []):
         if not isinstance(output, dict):
             continue
         for content in output.get("content", []):
             if not isinstance(content, dict):
                 continue
-            trace = content.get("trace")
+            trace = (
+                content.get("traces") if content.get("type") == "output_text" else None
+            )
             if isinstance(trace, dict):
                 return trace
-            if content.get("type") == "trace" and isinstance(
-                content.get("value"), dict
-            ):
-                return content["value"]
     return None
 
 
@@ -330,28 +331,48 @@ def _trace_session_id(trace):
 
 
 def _trace_summary(trace):
-    """Return bounded span observability without attributes or arbitrary data."""
+    """Return bounded span metadata without attributes or non-error events."""
     if not isinstance(trace, dict):
         return None
     spans = trace.get("spans")
     if not isinstance(spans, list):
         return []
     return [
-        {
-            "span_name": span.get("spanName", span.get("span_name")),
-            "status": _trace_status_code(span.get("status")),
-            "duration_ms": _trace_span_duration_milliseconds(span),
-        }
-        for span in spans[:1000]
+        _trace_span_summary(span)
+        for span in spans[:MAX_TRACE_SPANS]
         if isinstance(span, dict)
     ]
 
 
-def _trace_status_code(status):
-    """Extract a status code only, so inline messages and data stay private."""
+def _trace_span_summary(span):
+    """Sanitize one response trace span without its attributes or events."""
+    return {
+        "span_name": _bounded_string(span.get("spanName", span.get("span_name"))),
+        "kind": _trace_kind_name(span.get("kind")),
+        "status": _trace_status(span.get("status")),
+        "duration_ms": _trace_span_duration_milliseconds(span),
+    }
+
+
+def _trace_status(status):
+    """Return bounded JSON-safe response trace status without arbitrary data."""
     if isinstance(status, dict):
-        return status.get("code") if isinstance(status.get("code"), str) else None
-    return status if isinstance(status, str) else None
+        return {
+            "code": _bounded_string(status.get("code")),
+            "message": _bounded_string(status.get("message")),
+        }
+    if isinstance(status, str):
+        return {"code": _bounded_string(status), "message": None}
+    return None
+
+
+def _trace_kind_name(kind):
+    """Normalize numeric response trace kinds to their documented names."""
+    return (
+        span_kind(kind)
+        if isinstance(kind, (str, int)) and not isinstance(kind, bool)
+        else None
+    )
 
 
 def _trace_span_duration_milliseconds(span):
@@ -359,6 +380,43 @@ def _trace_span_duration_milliseconds(span):
     start_time = span.get("startTime", span.get("start_time"))
     end_time = span.get("endTime", span.get("end_time"))
     try:
-        return float((end_time - start_time) / 1000000)
+        return float((end_time - start_time) / NANOSECONDS_PER_MILLISECOND)
     except (TypeError, ValueError):
         return None
+
+
+def _usage(response_body):
+    """Return the three known token counts without exposing other usage data."""
+    usage = response_body.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    return {
+        "input_tokens": _token_count(usage.get("inputTokens")),
+        "output_tokens": _token_count(usage.get("outputTokens")),
+        "total_tokens": _token_count(usage.get("totalTokens")),
+    }
+
+
+def _token_count(value):
+    """Return a non-Boolean nonnegative token count, or ``None``."""
+    return (
+        value
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        else None
+    )
+
+
+def _agent_error(response_body):
+    """Return a bounded agent error only when the response reports a code."""
+    error = response_body.get("error")
+    if not isinstance(error, dict):
+        return None
+    code = _bounded_string(error.get("code"))
+    if not code:
+        return None
+    return {"code": code, "message": _bounded_string(error.get("message"))}
+
+
+def _bounded_string(value):
+    """Return a bounded string without coercing arbitrary response values."""
+    return value[:MAX_AGENT_ERROR_CHARACTERS] if isinstance(value, str) else None

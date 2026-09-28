@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-28: Parse the verified AI DP `/chat` `output_text.traces` response
+  shape, returning bounded answer text, sanitized trace/session metadata,
+  token usage, and a bounded reported agent error when present.
+
 * 2026-09-28: Normalize AI DP agent traces to JSON-safe span status, kind, and
   millisecond duration fields; extract answer text separately from inline
   traces and return the discovered trace/session metadata. Extend cluster

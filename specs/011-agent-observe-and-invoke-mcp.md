@@ -199,8 +199,17 @@ Response:
   * `response_id`, if present;
   * `session_key`, from the response body or headers once discovered;
     otherwise `null` with a note;
-  * `text`: the concatenated `output[].content[].text`, bounded by
-    `max_characters`, plus `truncated`;
+  * `text`: the concatenated `output[].content[]` items whose type is exactly
+    `output_text`, bounded by `max_characters`, plus `truncated`. Ignore
+    serialized `trace` content items;
+  * `trace_id` from `output_text.traces.id`, and `session_id` and
+    `session_key` from `output_text.traces.parentSessionId`;
+  * `trace_summary`: at most 1,000 sanitized trace spans with `span_name`, a
+    normalized kind name, bounded `status` (`code`, `message`), and
+    nanosecond-derived `duration_ms`; exclude attributes and non-error events;
+  * `usage` with `input_tokens`, `output_tokens`, and `total_tokens` from the
+    response token counts; and a bounded `agent_error` (`code`, `message`)
+    only when the response `error.code` is nonempty;
   * `response_keys`: the top-level keys of the JSON body, so the unknown
     schema can be observed without dumping it.
 * On a non-2xx status, raise `AidpError` with the status code and a bounded,
@@ -249,10 +258,12 @@ Network stays blocked:
   * on non-2xx it raises with a bounded excerpt, and no header or signature
     appears;
   * on timeout it raises without retrying;
-  * text extraction returns only `agent_response` / text content, excluding an
-    inline trace; it is bounded;
-  * the observed inline trace returns `trace_id`, `session_id`, and a bounded
-    span-name/status-code/`duration_ms` summary with no attributes.
+  * text extraction returns only `output_text` content, excluding serialized
+    trace content; it is bounded;
+  * the observed `output_text.traces` returns `trace_id`, `session_id`, and a
+    bounded span-name/kind/status/`duration_ms` summary with no attributes;
+  * the verified top-level `usage` token counts and a nonempty `error.code`
+    produce sanitized `usage` and `agent_error` results.
 * All six agent tools run with representative generated SDK model objects and
   their results pass `json.dumps`; SDK model objects must never leak into MCP
   tool output.
@@ -445,3 +456,22 @@ describing the blocker in "Verification evidence".
   observed response shape, not every possible agent or trace shape. Offline
   tests use sanitized representative SDK models and responses; final local
   quality-gate results are recorded with this implementation change.
+
+2026-09-28, manual test C parser-regression correction:
+
+* Manual test C returned HTTP 200 but exposed an empty parsed text and null
+  trace/session fields. The verified sanitized `/chat` shape is top-level
+  `object`, `model`, `error`, `usage`, and `metadata`, with
+  `output[0] = {type: "message", role: "assistant", content: [...]}`.
+  Its first content item is `{type: "output_text", text, traces}` and its
+  second is `{type: "trace", text}` containing serialized trace data.
+* `traces` provides `id`, `parentSessionId`, timestamps, resources, and spans;
+  each span provides IDs, `spanName`, kind, status, timestamps, attributes,
+  and events. The invocation parser now reads only `output_text`, takes the
+  trace and session identifiers from `traces`, and never returns resources,
+  attributes, or non-error events. It also exposes only the three token counts
+  and a bounded response error when its code is nonempty.
+* The exact sanitized shape is covered offline, including an assertion that no
+  span attribute reaches the result. Local quality-gate results are recorded
+  after this correction: 263 tests passed, Black was clean, Pylint scored
+  10.00/10, and `git diff --check` was clean.
