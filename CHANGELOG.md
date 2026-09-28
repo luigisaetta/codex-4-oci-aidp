@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* 2026-09-28: Normalize AI DP agent traces to JSON-safe span status, kind, and
+  millisecond duration fields; extract answer text separately from inline
+  traces and return the discovered trace/session metadata. Extend cluster
+  lookup to include AI Compute clusters.
+
 * 2026-09-28: Preserve AI DP active-deployment endpoint URLs that already end
   in `/chat`, append it only to supported agent-endpoint base paths, and reject
   unsupported endpoint paths before invocation.

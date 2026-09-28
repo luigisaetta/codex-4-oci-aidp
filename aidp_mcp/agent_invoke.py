@@ -11,7 +11,10 @@ from urllib.parse import urlparse
 import requests
 
 from aidp_common.connection import AidpError, load_auth, validate_resource_key
-from aidp_mcp.agent_lookup import find_agent, list_deployments
+from aidp_mcp.agent_lookup import (
+    find_agent,
+    list_deployments,
+)
 from aidp_mcp.lookups import resource_key
 from aidp_mcp.safety import require_confirmation
 from aidp_mcp.targets import agent_clients
@@ -86,7 +89,10 @@ def invoke_agent(
         )
     response_body = _json_response(response)
     text, truncated = _response_text(response_body, max_characters)
-    response_session_key = _response_session_key(response_body, response.headers)
+    trace = _inline_trace(response_body)
+    response_session_key = _trace_session_id(trace) or _response_session_key(
+        response_body, response.headers
+    )
     return {
         "agent_name": agent_name,
         "http_status": response.status_code,
@@ -100,6 +106,9 @@ def invoke_agent(
         "text": text,
         "truncated": truncated,
         "response_keys": sorted(response_body),
+        "trace_id": _trace_id(trace),
+        "session_id": _trace_session_id(trace),
+        "trace_summary": _trace_summary(trace),
     }
 
 
@@ -264,13 +273,92 @@ def _response_session_key(response_body, headers):
 
 
 def _response_text(response_body, max_characters):
-    """Concatenate bounded text values from the documented response output."""
+    """Extract only answer-text content, excluding inline trace payloads."""
     text_parts = []
     for output in response_body.get("output", []):
         if not isinstance(output, dict):
             continue
         for content in output.get("content", []):
-            if isinstance(content, dict) and isinstance(content.get("text"), str):
+            if (
+                isinstance(content, dict)
+                and _is_agent_answer(content)
+                and isinstance(content.get("text"), str)
+            ):
                 text_parts.append(content["text"])
     text = "".join(text_parts)
     return text[:max_characters], len(text) > max_characters
+
+
+def _is_agent_answer(content):
+    """Return whether content is an observed agent-response text item."""
+    content_type = content.get("type")
+    return content_type in ("agent_response", "text", "TEXT", "AGENT_RESPONSE")
+
+
+def _inline_trace(response_body):
+    """Return the first observed inline trace mapping without traversing data."""
+    for output in response_body.get("output", []):
+        if not isinstance(output, dict):
+            continue
+        for content in output.get("content", []):
+            if not isinstance(content, dict):
+                continue
+            trace = content.get("trace")
+            if isinstance(trace, dict):
+                return trace
+            if content.get("type") == "trace" and isinstance(
+                content.get("value"), dict
+            ):
+                return content["value"]
+    return None
+
+
+def _trace_id(trace):
+    """Extract a trace identifier from the observed camel- or snake-case key."""
+    if not isinstance(trace, dict):
+        return None
+    value = trace.get("id", trace.get("traceId"))
+    return value if isinstance(value, str) else None
+
+
+def _trace_session_id(trace):
+    """Extract the session identifier shared by the session observation tools."""
+    if not isinstance(trace, dict):
+        return None
+    value = trace.get("parentSessionId", trace.get("parent_session_id"))
+    return value if isinstance(value, str) else None
+
+
+def _trace_summary(trace):
+    """Return bounded span observability without attributes or arbitrary data."""
+    if not isinstance(trace, dict):
+        return None
+    spans = trace.get("spans")
+    if not isinstance(spans, list):
+        return []
+    return [
+        {
+            "span_name": span.get("spanName", span.get("span_name")),
+            "status": _trace_status_code(span.get("status")),
+            "duration_ms": _trace_span_duration_milliseconds(span),
+        }
+        for span in spans[:1000]
+        if isinstance(span, dict)
+    ]
+
+
+def _trace_status_code(status):
+    """Extract a status code only, so inline messages and data stay private."""
+    if isinstance(status, dict):
+        return status.get("code") if isinstance(status.get("code"), str) else None
+    return status if isinstance(status, str) else None
+
+
+def _trace_span_duration_milliseconds(span):
+    """Convert an inline-trace span's nanosecond timestamps to milliseconds."""
+    start_time = span.get("startTime", span.get("start_time"))
+    end_time = span.get("endTime", span.get("end_time"))
+    try:
+        return float((end_time - start_time) / 1000000)
+    except (TypeError, ValueError):
+        return None

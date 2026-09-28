@@ -6,10 +6,12 @@ Description: Offline tests for guarded AI DP deployed-agent invocation.
 """
 
 from contextlib import contextmanager
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from aidp_python_client.aidataplatform_dp import models
 
 from aidp_common.connection import AidpError
 from aidp_mcp import agent_invoke
@@ -213,14 +215,35 @@ def test_invoke_agent_sends_documented_request_without_redirects(monkeypatch):
 
 
 def test_invoke_agent_bounds_response_text_and_reports_observable_keys(monkeypatch):
-    """Only documented output text is concatenated and locally bounded."""
+    """Only agent text is returned; the observed inline trace is summarized."""
     client = _invoke_client([_deployment()])
     response = _successful_response(
         {
             "responseId": "response-id",
             "output": [
-                {"content": [{"text": "hello"}, {"text": " world"}]},
-                {"content": [{"type": "other"}, {"text": "!"}]},
+                {
+                    "content": [
+                        {"type": "agent_response", "text": "hello"},
+                        {"type": "text", "text": " world"},
+                        {
+                            "type": "trace",
+                            "value": {
+                                "id": "trace-id",
+                                "parentSessionId": "trace-session",
+                                "spans": [
+                                    {
+                                        "spanName": "respond.task",
+                                        "startTime": 1000000,
+                                        "endTime": 2500000,
+                                        "status": {"code": "OK"},
+                                        "attributes": {"private": "data"},
+                                    }
+                                ],
+                            },
+                        },
+                    ]
+                },
+                {"content": [{"type": "other", "text": "!"}]},
             ],
         },
         {"X-Session-Key": "header-session"},
@@ -243,12 +266,54 @@ def test_invoke_agent_bounds_response_text_and_reports_observable_keys(monkeypat
         "agent_name": "hello",
         "http_status": 200,
         "response_id": "response-id",
-        "session_key": "header-session",
+        "session_key": "trace-session",
         "session_key_note": None,
         "text": "hello w",
         "truncated": True,
         "response_keys": ["output", "responseId"],
+        "trace_id": "trace-id",
+        "session_id": "trace-session",
+        "trace_summary": [
+            {"span_name": "respond.task", "status": "OK", "duration_ms": 1.5}
+        ],
     }
+
+
+def test_invoke_agent_serializes_real_sdk_models(monkeypatch):
+    """The invocation tool stays JSON-safe when lookup uses generated models."""
+    client = Mock()
+    client.list_agents.return_value = _response(
+        [models.AgentInfo(display_name="hello", key="agent-key", type="CODE")]
+    )
+    client.list_agent_deployments.return_value = _response(
+        [
+            models.AgentDeployment(
+                key="deployment-key",
+                lifecycle_state="ACTIVE",
+                endpoint_url=(
+                    "https://gateway.aidp.example.oraclecloud.com/agentendpoint/id"
+                ),
+            )
+        ]
+    )
+    response = _successful_response(
+        {"output": [{"content": [{"type": "agent_response", "text": "hello"}]}]}
+    )
+    monkeypatch.setattr(
+        agent_invoke, "agent_clients", lambda _settings: _clients(client)
+    )
+    monkeypatch.setattr(
+        agent_invoke, "load_auth", Mock(return_value=({}, {"signer": "s"}))
+    )
+    monkeypatch.setattr(
+        agent_invoke, "_post_agent_message", Mock(return_value=response)
+    )
+
+    result = agent_invoke.invoke_agent(
+        SimpleNamespace(), "hello", "Hi there", confirm_invoke=True
+    )
+
+    json.dumps(result)
 
 
 def test_invoke_agent_non_success_status_has_bounded_sanitized_excerpt(monkeypatch):

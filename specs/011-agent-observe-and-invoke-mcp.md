@@ -141,7 +141,7 @@ SDK objects.
 | `get_aidp_agent` | `agent_name: str` | The same agent fields, plus its deployments: `key`, `lifecycle_state`, `deployment_type`, `deployment_version`, `endpoint_url`, `time_created`, `time_updated` |
 | `list_aidp_agent_sessions` | `agent_name: str`, `max_results: int = 25` | Newest-first sessions: `session_id`, `display_name`, `lifecycle_state`, timestamps, `duration`, `tokens`; plus `truncated` |
 | `get_aidp_agent_session_messages` | `agent_name: str`, `session_id: str`, `max_characters: int = 12000` | Ordered messages: `role`, `time_created`, `tool_name`, and text content bounded in total by `max_characters`; `metadata` **keys only**; plus `truncated`. The docstring states that messages can contain application data and should be requested only when authorized, like `get_job_run_output` |
-| `get_aidp_agent_trace` | `agent_name: str`, `session_id: str`, `trace_key: str`, `max_spans: int = 100` | `trace_id`, total duration, and spans in start order, each with `span_name`, `kind`, `status`, duration, and **error events only** (event name and a bounded message). Span `attributes` are **not** returned, because they can contain prompts and data |
+| `get_aidp_agent_trace` | `agent_name: str`, `session_id: str`, `trace_key: str`, `max_spans: int = 100` | `trace_id`, total `duration_ms`, and spans in start order, each with `span_name`, normalized `kind`, JSON-safe `status` (`code`, bounded `message`), `duration_ms`, and **error events only** (event name and a bounded message). Span `attributes` are **not** returned, because they can contain prompts and data |
 
 Validation:
 
@@ -249,7 +249,15 @@ Network stays blocked:
   * on non-2xx it raises with a bounded excerpt, and no header or signature
     appears;
   * on timeout it raises without retrying;
-  * text extraction concatenates `output[].content[].text` and is bounded.
+  * text extraction returns only `agent_response` / text content, excluding an
+    inline trace; it is bounded;
+  * the observed inline trace returns `trace_id`, `session_id`, and a bounded
+    span-name/status-code/`duration_ms` summary with no attributes.
+* All six agent tools run with representative generated SDK model objects and
+  their results pass `json.dumps`; SDK model objects must never leak into MCP
+  tool output.
+* Cluster status and lifecycle lookup also query `list_clusters` with
+  `type="AI_COMPUTE"`, retaining exact-name matching and duplicate detection.
 * The MCP tool snapshot is updated **intentionally** with the six new tools,
   and existing tool entries are byte-identical. The evidence lists the added
   tool names.
@@ -413,3 +421,27 @@ describing the blocker in "Verification evidence".
   clean, Pylint scored 10.00/10, and `git diff --check` was clean. The new
   offline coverage verifies the live `/agentendpoint/<agent-key>/chat` shape,
   a base agent endpoint that needs `/chat`, and rejection of `/a2a`.
+
+2026-09-28, live end-to-end invocation and serialization follow-up:
+
+* The first end-to-end invocation returned HTTP 200 and the expected hello-world
+  agent text. The response exposed `output` and its inline trace together;
+  `output[].content[]` contained the agent answer plus the trace rather than a
+  standalone response field.
+* The observed trace spans were `agent_invoke > LangGraph.workflow >
+  respond.task`. `trace.id` matched the trace key and `trace.parentSessionId`
+  was the session identifier accepted by the session observation tools.
+  `list_aidp_agent_sessions` and `get_aidp_agent_session_messages` now work on
+  the deployed agent. No identifiers, response bodies, or agent data are
+  recorded here.
+* Live trace serialization exposed an MCP contract bug: span `status` was a
+  generated SDK `SpanStatus` object, kind was numeric (`1` for `INTERNAL`),
+  and timestamp differences were nanoseconds. This follow-up normalizes these
+  fields to JSON-safe status mappings, span-kind names where mapped, and float
+  `duration_ms` values. It also returns only agent-answer text and a bounded,
+  attribute-free inline trace summary, and uses the discovered session ID as
+  `session_key` with a note only when no session can be found.
+* This evidence is from one deployed-agent run on OCI AI DP. It verifies the
+  observed response shape, not every possible agent or trace shape. Offline
+  tests use sanitized representative SDK models and responses; final local
+  quality-gate results are recorded with this implementation change.

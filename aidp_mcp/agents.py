@@ -9,7 +9,7 @@ from aidp_common.connection import AidpError, validate_resource_key
 from aidp_mcp.agent_lookup import (
     agent_response,
     collection_items,
-    duration,
+    duration_milliseconds,
     find_agent,
     get_agent_response,
     message_response,
@@ -247,7 +247,7 @@ def get_agent_trace(settings, agent_name, session_id, trace_key, max_spans=100):
     truncated = len(spans) > max_spans
     return {
         "trace_id": getattr(trace, "trace_id", None),
-        "duration": duration(trace),
+        "duration_ms": duration_milliseconds(trace),
         "spans": [span_response(span) for span in spans[:max_spans]],
         "truncated": truncated,
     }

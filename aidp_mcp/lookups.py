@@ -97,16 +97,7 @@ def find_cluster(clusters, instance_id, workspace_key, cluster_name):
     Raises:
         AidpError: The cluster is absent, ambiguous, or not active.
     """
-    matches = [
-        item
-        for item in oci.pagination.list_call_get_all_results(
-            clusters.list_clusters,
-            instance_id,
-            workspace_key,
-            display_name=cluster_name,
-        ).data
-        if getattr(item, "display_name", None) == cluster_name
-    ]
+    matches = find_cluster_matches(clusters, instance_id, workspace_key, cluster_name)
     if len(matches) != 1:
         raise AidpError(f"Cluster name has {len(matches)} visible matches.")
     key = resource_key(matches[0], "Cluster")
@@ -152,20 +143,32 @@ def find_cluster_details(clusters, instance_id, workspace_key, cluster_name):
     Raises:
         AidpError: The cluster is absent, ambiguous, or lacks a resource key.
     """
-    matches = [
-        item
-        for item in oci.pagination.list_call_get_all_results(
-            clusters.list_clusters,
-            instance_id,
-            workspace_key,
-            display_name=cluster_name,
-        ).data
-        if getattr(item, "display_name", None) == cluster_name
-    ]
+    matches = find_cluster_matches(clusters, instance_id, workspace_key, cluster_name)
     if len(matches) != 1:
         raise AidpError(f"Expected exactly one cluster named {cluster_name!r}.")
     key = resource_key(matches[0], "Cluster")
     return clusters.get_cluster(instance_id, workspace_key, key)
+
+
+def find_cluster_matches(clusters, instance_id, workspace_key, cluster_name):
+    """Find exact-name standard and AI Compute cluster summaries once each."""
+    matches = []
+    seen_keys = set()
+    for cluster_type in (None, "AI_COMPUTE"):
+        options = {"display_name": cluster_name}
+        if cluster_type is not None:
+            options["type"] = cluster_type
+        response = oci.pagination.list_call_get_all_results(
+            clusters.list_clusters, instance_id, workspace_key, **options
+        )
+        for item in response.data:
+            if getattr(item, "display_name", None) != cluster_name:
+                continue
+            key = resource_key(item, "Cluster")
+            if key not in seen_keys:
+                seen_keys.add(key)
+                matches.append(item)
+    return matches
 
 
 def _sorted_named_resources(resources, label):

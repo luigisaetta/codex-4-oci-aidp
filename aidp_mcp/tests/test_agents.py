@@ -6,10 +6,12 @@ Description: Offline tests for AI DP MCP agent observation operations.
 """
 
 from contextlib import contextmanager
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from aidp_python_client.aidataplatform_dp import models
 
 from aidp_common.connection import AidpError
 from aidp_mcp import agents
@@ -308,10 +310,98 @@ def test_get_agent_trace_orders_spans_and_returns_only_bounded_error_events(
     )
 
     assert result["trace_id"] == "trace-id"
-    assert result["duration"] == 14
+    assert result["duration_ms"] == 0.000014
     assert [span["span_name"] for span in result["spans"]] == ["earlier", "later"]
     assert "attributes" not in result["spans"][0]
     assert result["spans"][0]["error_events"] == [
         {"name": "exception", "message": "x" * 1000}
     ]
     assert result["spans"][1]["error_events"] == []
+
+
+def test_get_agent_trace_serializes_real_sdk_span_status(monkeypatch):
+    """A generated SpanStatus model never escapes the trace tool response."""
+    client = _resolved_client()
+    status = models.SpanStatus(code="OK", message="complete")
+    span = models.SpanDetails(
+        parent_trace_id="trace-id",
+        span_id="span-id",
+        start_time=1000000,
+        end_time=3500000,
+        kind=1,
+        span_name="respond.task",
+        attributes={"prompt": "private"},
+        events=[],
+        status=status,
+    )
+    trace = models.TraceDetails(
+        trace_id="trace-id", start_time=1000000, end_time=3500000, spans=[span]
+    )
+    client.get_agent_session_trace.return_value = SimpleNamespace(data=trace)
+    monkeypatch.setattr(agents, "agent_clients", lambda _settings: _clients(client))
+
+    result = agents.get_agent_trace(
+        SimpleNamespace(), "hello", "session-id", "trace-id"
+    )
+
+    assert result == {
+        "trace_id": "trace-id",
+        "duration_ms": 2.5,
+        "spans": [
+            {
+                "span_name": "respond.task",
+                "kind": "INTERNAL",
+                "status": {"code": "OK", "message": "complete"},
+                "duration_ms": 2.5,
+                "error_events": [],
+            }
+        ],
+        "truncated": False,
+    }
+
+
+def test_all_observation_tools_serialize_real_sdk_models(monkeypatch):
+    """Generated SDK models cannot leak from any agent observation response."""
+    client = Mock()
+    agent_info = models.AgentInfo(display_name="hello", key="agent-key", type="CODE")
+    agent = models.Agent(display_name="hello", key="agent-key", type="CODE")
+    deployment = models.AgentDeployment(
+        key="deployment-key", lifecycle_state="ACTIVE", deployment_type="PROD"
+    )
+    session = models.AgentSessionSummary(
+        key="session-id", display_name="session", lifecycle_state="ACTIVE"
+    )
+    message = models.SessionChatHistorySummary(
+        role="Assistant", content=models.ChatMessage(type="TEXT", text="hello")
+    )
+    span = models.SpanDetails(
+        parent_trace_id="trace-id",
+        span_id="span-id",
+        start_time=0,
+        end_time=1000000,
+        kind=1,
+        span_name="respond.task",
+        attributes={},
+        events=[],
+        status=models.SpanStatus(code="OK", message="done"),
+    )
+    trace = models.TraceDetails(
+        trace_id="trace-id", start_time=0, end_time=1000000, spans=[span]
+    )
+    client.list_agents.return_value = _response([agent_info])
+    client.get_agent.return_value = SimpleNamespace(data=agent)
+    client.list_agent_deployments.return_value = _response([deployment])
+    client.list_agent_sessions.return_value = _response([session])
+    client.list_agent_session_chat_histories.return_value = _response([message])
+    client.get_agent_session_trace.return_value = SimpleNamespace(data=trace)
+    monkeypatch.setattr(agents, "agent_clients", lambda _settings: _clients(client))
+
+    results = [
+        agents.list_agents(SimpleNamespace()),
+        agents.get_agent(SimpleNamespace(), "hello"),
+        agents.list_agent_sessions(SimpleNamespace(), "hello"),
+        agents.get_agent_session_messages(SimpleNamespace(), "hello", "session-id"),
+        agents.get_agent_trace(SimpleNamespace(), "hello", "session-id", "trace-id"),
+    ]
+
+    json.dumps(results)

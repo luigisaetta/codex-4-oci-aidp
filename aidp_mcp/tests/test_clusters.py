@@ -13,6 +13,7 @@ import pytest
 
 from aidp_common.connection import AidpError
 from aidp_mcp import clusters
+from aidp_mcp import lookups
 
 
 def test_cluster_response_omits_sensitive_runtime_references():
@@ -66,6 +67,33 @@ def test_cluster_response_omits_sensitive_runtime_references():
         },
         "auto_termination_minutes": 30,
     }
+
+
+def test_cluster_lookup_also_searches_ai_compute_clusters(monkeypatch):
+    """An AI Compute is discovered through its explicit SDK list type filter."""
+    cluster = SimpleNamespace(key="compute-key", display_name="compute")
+    calls = []
+
+    def list_results(_method, *_args, **kwargs):
+        calls.append(kwargs)
+        items = [cluster] if kwargs.get("type") == "AI_COMPUTE" else []
+        return SimpleNamespace(data=items)
+
+    monkeypatch.setattr(
+        lookups.oci.pagination, "list_call_get_all_results", list_results
+    )
+    cluster_client = Mock()
+    cluster_client.get_cluster.return_value = SimpleNamespace(data=cluster, headers={})
+
+    result = lookups.find_cluster_details(
+        cluster_client, "instance", "workspace", "compute"
+    )
+
+    assert result.data is cluster
+    assert calls == [
+        {"display_name": "compute"},
+        {"display_name": "compute", "type": "AI_COMPUTE"},
+    ]
 
 
 def test_set_cluster_state_starts_stopped_cluster_with_etag(monkeypatch):

@@ -1,6 +1,6 @@
 """
 Author: L. Saetta
-Date last modified: 2026-09-27
+Date last modified: 2026-09-28
 License: MIT
 Description: Shared exact-name AI DP agent lookup and sanitized response helpers.
 """
@@ -10,6 +10,15 @@ from aidp_mcp.lookups import SDK_PAGE_SIZE, next_page, resource_key
 
 MAX_AGENT_DEPLOYMENTS = 1000
 MAX_ERROR_EVENT_MESSAGE_CHARACTERS = 1000
+NANOSECONDS_PER_MILLISECOND = 1000000
+SPAN_KIND_NAMES = {
+    0: "UNSPECIFIED",
+    1: "INTERNAL",
+    2: "SERVER",
+    3: "CLIENT",
+    4: "PRODUCER",
+    5: "CONSUMER",
+}
 
 
 def find_agent(client, instance_id, workspace_key, agent_name):
@@ -96,16 +105,18 @@ def agent_response(agent):
     compute_key = getattr(agent, "compute_key", None)
     deployment_compute_key = getattr(agent, "deployment_compute_key", None)
     return {
-        "name": getattr(agent, "display_name", None),
+        "name": json_value(getattr(agent, "display_name", None)),
         "key": resource_key(agent, "Agent"),
-        "type": getattr(agent, "type", None),
-        "lifecycle_state": getattr(agent, "lifecycle_state", None),
-        "lifecycle_details": getattr(agent, "lifecycle_details", None),
-        "deployment_mode": getattr(agent, "deployment_mode", None),
-        "uri_state": getattr(agent, "uri_state", None),
-        "entry_file_path": getattr(agent, "entry_file_path", None),
-        "dependencies_file_path": getattr(agent, "dependencies_file_path", None),
-        "path_info": getattr(agent, "path_info", None),
+        "type": json_value(getattr(agent, "type", None)),
+        "lifecycle_state": json_value(getattr(agent, "lifecycle_state", None)),
+        "lifecycle_details": json_value(getattr(agent, "lifecycle_details", None)),
+        "deployment_mode": json_value(getattr(agent, "deployment_mode", None)),
+        "uri_state": json_value(getattr(agent, "uri_state", None)),
+        "entry_file_path": json_value(getattr(agent, "entry_file_path", None)),
+        "dependencies_file_path": json_value(
+            getattr(agent, "dependencies_file_path", None)
+        ),
+        "path_info": json_value(getattr(agent, "path_info", None)),
         "compute_attached": bool(compute_key or deployment_compute_key),
     }
 
@@ -114,12 +125,14 @@ def deployment_response(deployment):
     """Return selected deployment fields without serializing SDK objects."""
     return {
         "key": resource_key(deployment, "Agent deployment"),
-        "lifecycle_state": getattr(deployment, "lifecycle_state", None),
-        "deployment_type": getattr(deployment, "deployment_type", None),
-        "deployment_version": getattr(deployment, "deployment_version", None),
-        "endpoint_url": getattr(deployment, "endpoint_url", None),
-        "time_created": getattr(deployment, "time_created", None),
-        "time_updated": getattr(deployment, "time_updated", None),
+        "lifecycle_state": json_value(getattr(deployment, "lifecycle_state", None)),
+        "deployment_type": json_value(getattr(deployment, "deployment_type", None)),
+        "deployment_version": json_value(
+            getattr(deployment, "deployment_version", None)
+        ),
+        "endpoint_url": json_value(getattr(deployment, "endpoint_url", None)),
+        "time_created": json_value(getattr(deployment, "time_created", None)),
+        "time_updated": json_value(getattr(deployment, "time_updated", None)),
     }
 
 
@@ -127,13 +140,13 @@ def session_response(session):
     """Return selected session fields without serializing SDK objects."""
     return {
         "session_id": resource_key(session, "Agent session"),
-        "display_name": getattr(session, "display_name", None),
-        "lifecycle_state": getattr(session, "lifecycle_state", None),
-        "time_created": getattr(session, "time_created", None),
-        "time_started": getattr(session, "time_started", None),
-        "time_ended": getattr(session, "time_ended", None),
-        "duration": getattr(session, "duration", None),
-        "tokens": getattr(session, "tokens", None),
+        "display_name": json_value(getattr(session, "display_name", None)),
+        "lifecycle_state": json_value(getattr(session, "lifecycle_state", None)),
+        "time_created": json_value(getattr(session, "time_created", None)),
+        "time_started": json_value(getattr(session, "time_started", None)),
+        "time_ended": json_value(getattr(session, "time_ended", None)),
+        "duration": json_value(getattr(session, "duration", None)),
+        "tokens": json_value(getattr(session, "tokens", None)),
     }
 
 
@@ -154,9 +167,9 @@ def message_response(message, text):
     """Return message metadata, text, and metadata keys without metadata values."""
     metadata = getattr(message, "metadata", None)
     return {
-        "role": getattr(message, "role", None),
-        "time_created": getattr(message, "time_created", None),
-        "tool_name": getattr(message, "tool_name", None),
+        "role": json_value(getattr(message, "role", None)),
+        "time_created": json_value(getattr(message, "time_created", None)),
+        "tool_name": json_value(getattr(message, "tool_name", None)),
         "text": text,
         "metadata_keys": sorted(metadata) if isinstance(metadata, dict) else [],
     }
@@ -170,28 +183,30 @@ def time_sort_key(span):
     return 1, str(start_time)
 
 
-def duration(item):
-    """Return a numeric duration when two compatible timestamps are available."""
+def duration_milliseconds(item):
+    """Return a millisecond duration from AI DP nanoseconds or timedeltas."""
     start_time = getattr(item, "start_time", None)
     end_time = getattr(item, "end_time", None)
     try:
         duration_value = end_time - start_time
     except (TypeError, ValueError):
         return None
-    return (
-        duration_value.total_seconds()
-        if hasattr(duration_value, "total_seconds")
-        else duration_value
-    )
+    if hasattr(duration_value, "total_seconds"):
+        return float(duration_value.total_seconds() * 1000)
+    if isinstance(duration_value, (int, float)) and not isinstance(
+        duration_value, bool
+    ):
+        return float(duration_value / NANOSECONDS_PER_MILLISECOND)
+    return None
 
 
 def span_response(span):
     """Return a span without prompt-bearing attributes or non-error events."""
     return {
-        "span_name": getattr(span, "span_name", None),
-        "kind": getattr(span, "kind", None),
-        "status": getattr(span, "status", None),
-        "duration": duration(span),
+        "span_name": json_value(getattr(span, "span_name", None)),
+        "kind": span_kind(getattr(span, "kind", None)),
+        "status": span_status(getattr(span, "status", None)),
+        "duration_ms": duration_milliseconds(span),
         "error_events": error_events(getattr(span, "events", None) or []),
     }
 
@@ -223,3 +238,46 @@ def error_message(event):
         if isinstance(value, str):
             return value[:MAX_ERROR_EVENT_MESSAGE_CHARACTERS]
     return None
+
+
+def span_status(status):
+    """Return a bounded JSON-safe status without leaking its SDK model."""
+    if status is None:
+        return None
+    return {
+        "code": string_value(getattr(status, "code", None)),
+        "message": bounded_string(getattr(status, "message", None)),
+    }
+
+
+def span_kind(kind):
+    """Return an SDK span-kind name when its numeric mapping is known."""
+    if isinstance(kind, int) and not isinstance(kind, bool):
+        return SPAN_KIND_NAMES.get(kind, str(kind))
+    return string_value(kind)
+
+
+def bounded_string(value):
+    """Return an optional bounded string, coercing no arbitrary SDK object."""
+    return (
+        value[:MAX_ERROR_EVENT_MESSAGE_CHARACTERS] if isinstance(value, str) else None
+    )
+
+
+def string_value(value):
+    """Return an optional scalar as a string without returning an SDK model."""
+    if value is None:
+        return None
+    return value if isinstance(value, str) else str(value)
+
+
+def json_value(value):
+    """Convert a selected SDK scalar into a JSON-compatible representation."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    name = getattr(value, "name", None)
+    if isinstance(name, str):
+        return name
+    return str(value)
