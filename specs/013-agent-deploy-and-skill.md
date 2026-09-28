@@ -522,3 +522,18 @@ Offline verification completed in the `codex-4-oci-aidp` Conda environment:
 
 No live call was made; the remote verification items above remain pending
 explicit authorization.
+
+### Pylint test-access follow-up — 2026-09-28
+
+Rewrote the older-FAILED-PROD and newer-FAILED-PROD redeploy-wait regressions
+to use the public `deploy_agent` API with mocked plan-baseline and polling SDK
+responses. The tests no longer call protected deployment-classification
+helpers, and no Pylint disable was added.
+
+Offline verification completed in the `codex-4-oci-aidp` Conda environment:
+
+* `pytest aidp_mcp/tests/test_agent_deploy.py -q` — 25 passed;
+* `pytest -q` — 298 passed;
+* `pylint aidp_common aidp_mcp tests` — 10.00/10;
+* `black --check aidp_common aidp_mcp tests` — 42 files unchanged;
+* `git diff --check` passed.

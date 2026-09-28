@@ -396,44 +396,65 @@ def test_deploy_wait_ignores_failed_and_creating_test_deployments(monkeypatch):
     assert "timed_out" not in result
 
 
-def test_redeploy_wait_ignores_an_older_failed_prod_deployment():
+def test_redeploy_wait_ignores_an_older_failed_prod_deployment(monkeypatch):
     """A failed PROD deployment from before the request cannot end a redeploy wait."""
     previous = _deployment(time_created="2026-09-28T08:00:00Z")
     old_failed = _deployment(
         "old-failed", lifecycle_state="FAILED", time_created="2026-09-28T07:59:00Z"
     )
-    previous_summary = agent_deploy._deployment_summary(previous.__dict__)
-
-    outcome = agent_deploy._deployment_wait_outcome(
-        "redeploy",
-        [previous.__dict__, old_failed.__dict__],
-        previous_summary,
+    client = _plan_contexts(monkeypatch, deployments=[previous])
+    client.redeploy_agent_by_key.return_value = SimpleNamespace(status=202)
+    client.list_agent_deployments.side_effect = [
+        _response([previous]),
+        _response([previous, old_failed]),
+        _response([previous, old_failed]),
+    ]
+    sleep = Mock()
+    monkeypatch.setattr(agent_deploy.time, "sleep", sleep)
+    monkeypatch.setattr(
+        agent_deploy.time, "monotonic", Mock(side_effect=[0, 0, 0, 30, 31])
     )
 
-    assert outcome == {
-        "state": "PENDING",
-        "deployment": previous_summary,
-    }
+    result = agent_deploy.deploy_agent(
+        SimpleNamespace(), "hello", "aicomp02", apply=True, timeout_seconds=30
+    )
+
+    assert result["timed_out"] is True
+    assert result["final_deployment"]["key"] == previous.key
+    assert result["async_operation"] is None
+    sleep.assert_called_once_with(10)
+    client.redeploy_agent_by_key.assert_called_once()
 
 
-def test_redeploy_wait_reports_a_newer_failed_prod_deployment():
+def test_redeploy_wait_reports_a_newer_failed_prod_deployment(monkeypatch):
     """A failed PROD deployment created after the plan ends a redeploy wait."""
     previous = _deployment(time_created="2026-09-28T08:00:00Z")
     new_failed = _deployment(
         "new-failed", lifecycle_state="FAILED", time_created="2026-09-28T08:01:00Z"
     )
-    previous_summary = agent_deploy._deployment_summary(previous.__dict__)
+    client = _plan_contexts(monkeypatch, deployments=[previous])
+    client.redeploy_agent_by_key.return_value = SimpleNamespace(status=202)
+    client.list_agent_deployments.side_effect = [
+        _response([previous]),
+        _response([previous, new_failed]),
+    ]
+    operation_client = Mock()
+    operation_client.list_async_operations.return_value = _response([])
+    monkeypatch.setattr(
+        agent_deploy,
+        "async_operations_clients",
+        lambda _settings: _async_operations_clients(operation_client),
+    )
+    monkeypatch.setattr(agent_deploy.time, "monotonic", Mock(side_effect=[0, 0, 1]))
 
-    outcome = agent_deploy._deployment_wait_outcome(
-        "redeploy",
-        [previous.__dict__, new_failed.__dict__],
-        previous_summary,
+    result = agent_deploy.deploy_agent(
+        SimpleNamespace(), "hello", "aicomp02", apply=True
     )
 
-    assert outcome == {
-        "state": "FAILED",
-        "deployment": agent_deploy._deployment_summary(new_failed.__dict__),
-    }
+    assert result["state"] == "FAILED"
+    assert result["final_deployment"]["key"] == new_failed.key
+    assert result["async_operation"] is None
+    client.redeploy_agent_by_key.assert_called_once()
 
 
 def test_deploy_agent_reports_timeout_without_resubmitting(monkeypatch):
