@@ -122,7 +122,8 @@ Test the order agent without calling the real model. Cover all five answers,
 product names written in different ways, and tricky quantities: numbers in
 words, "a dozen", zero, negative, and missing. The standard contract tests
 must pass unchanged. Also check that the agent still works with the file
-arrangement used on AI DP. Run the code checks too.
+arrangement used on AI DP. Run the tests and code checks exactly as described
+in "Local checks" of AGENTS.md.
 ```
 
 **Expected result:**
@@ -132,8 +133,9 @@ arrangement used on AI DP. Run the code checks too.
   * a malformed model answer gets an answer;
   * the AI DP file layout works;
   * `requirements.txt` is clean;
+* a plain `pytest` from the repository root passes, **without `PYTHONPATH`**;
 * the code checks are clean: Black, and Pylint 10.00/10 with no disabled
-  checks.
+  checks, run inside the agent folder.
 
 ## 5. Try it on the laptop with the real model
 
@@ -314,8 +316,15 @@ facts verified on AI DP on 2026-09-28; see
     clean.
 * **Business tests** use a fake model whose `with_structured_output(...)`
   returns predefined results. No network.
-* **Code checks:** Black, and Pylint 10.00/10. Do not add Pylint disables in
-  agent code.
+  * They import the agent's modules **only through the `agent_modules`
+    fixture** of `tests/conftest.py`: `load = agent_modules("order_agent")`,
+    then `load("workflow")`.
+  * No top-level imports of agent modules.
+  * A plain `pytest` from the repository root must pass without
+    `PYTHONPATH`.
+* **Code checks:** Black, and Pylint 10.00/10, run inside each agent folder
+  (see "Local checks" in `agents-4-ai-dp/AGENTS.md`). Do not add Pylint
+  disables in agent code.
 * **Local run:** `LOCAL=true` and `OCI_PROFILE` from the user's environment;
   `scripts/run_local.py` needs the agent folder on `PYTHONPATH`.
 * **Dependencies:** the agent's `requirements.txt` lists no packages. The
@@ -366,3 +375,4 @@ safe helper, the standard contract tests, and the "Rules for every agent" in
 | The model was re-created for every message | the rule "create the model in `setup()`" + contract test `test_model_is_created_once_in_setup` |
 | "USB C chargers" was not recognized | the tolerant-matching requirement in step 3 |
 | Pylint below 10 | the code-check rule |
+| The business tests passed only with `PYTHONPATH` set by hand | the `agent_modules` fixture + the rule "plain `pytest` from the repository root" |
