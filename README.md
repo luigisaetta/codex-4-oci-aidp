@@ -86,11 +86,15 @@ only with an explicit flag.
 | --- | --- |
 | Upload an agent folder to the workspace | `upload_aidp_agent_code`: plan with a per-file SHA-256 comparison (`create`, `update`, `unchanged`), then apply. Updates need `overwrite=true`, every upload is read back and verified, secrets and symbolic links are refused, and nothing is ever deleted |
 | Create or update a CODE agent definition | `ensure_aidp_agent`: plan, then apply. It creates a `DRAFT` agent that points to the uploaded entry and dependency files, like the Workbench UI does. No compute is attached and nothing is deployed |
+| Inspect deployment or AI Compute progress | `list_aidp_async_operations`: bounded, newest-first status for `AGENT`, `AI_COMPUTE`, or `CLUSTER`, including sanitized failure details |
+| Deploy or redeploy a CODE agent | `deploy_aidp_agent`: plan first, then an approved no-retry deploy on an already ACTIVE AI Compute; redeploy after every code upload and expect a brief endpoint interruption |
 | Inspect agents, deployments, sessions, messages, and traces | `list_aidp_agents`, `get_aidp_agent`, `list_aidp_agent_sessions`, `get_aidp_agent_session_messages`, `get_aidp_agent_trace` (read-only; traces omit span attributes) |
 | Send a message to a deployed agent | `invoke_aidp_agent`, with `confirm_invoke=true`; the endpoint comes only from the agent's active deployment |
+| Follow the deployment and smoke-test procedure | the [`aidp-agent-deploy`](skills/aidp-agent-deploy/SKILL.md) skill |
 
-Upload and agent creation are verified on AI DP. Deployment on AI Compute and
-live invocation are the next step. Agent code lives in its own repository;
+Upload and agent creation are verified on AI DP. The deployment tool and skill
+are locally verified; their live deploy/redeploy and invocation verification
+remain pending explicit authorization. Agent code lives in its own repository;
 list that folder in `AIDP_ALLOWED_ROOTS` so the server may upload from it.
 
 ## Roadmap
@@ -101,8 +105,9 @@ list that folder in `AIDP_ALLOWED_ROOTS` so the server may upload from it.
 | ✅ Done | Skills infrastructure and the first operational skill |
 | ✅ Done | Agent observation and guarded invocation tools |
 | ✅ Done | Agent code upload and draft agent creation, verified on AI DP |
-| 🔜 Next | Deploy and redeploy code-first agents on AI Compute, and verify invocation live |
-| 🔜 Next | Agent authoring and deployment skills, based on verified facts |
+| ✅ Done | Plan-by-default code-agent deploy/redeploy, async-operation observation, and the `aidp-agent-deploy` workflow skill (offline verified) |
+| 🔜 Next | Verify deploy/redeploy and deterministic invocation live on AI Compute, including endpoint behavior during redeploy |
+| 🔜 Next | Agent authoring skills, based on verified facts |
 | 🔜 Next | Agents that call OCI Generative AI models, with verified IAM policies |
 
 ## Quick start

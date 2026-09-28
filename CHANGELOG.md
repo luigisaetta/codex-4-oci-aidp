@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* 2026-09-28: Add plan-by-default code-agent deployment and redeployment,
+  bounded async-operation observation, and the approval-gated
+  `aidp-agent-deploy` operational workflow skill.
+
 * 2026-09-28: Continue AI DP agent sessions only through the observed
   `x-session-id` request header, omit ignored body session fields, and report
   whether the returned session was reused.

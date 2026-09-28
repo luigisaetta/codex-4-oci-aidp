@@ -5,7 +5,19 @@ This repository has two classes of Codex skills:
 * Repository-development skills live in `.agents/skills/`. They guide Codex
   only while working in this repository and are discovered at repository scope.
 * Operational AI DP skills live in this `skills/` directory. They are versioned
-  with the AI DP MCP server and can be made available to Codex in any project.
+with the AI DP MCP server and can be made available to Codex in any project.
+
+## Available operational skills
+
+| Skill | Use it for | Safety boundary |
+| --- | --- | --- |
+| [`aidp-notebook-deploy-and-run`](aidp-notebook-deploy-and-run/SKILL.md) | Uploading an approved notebook, reconciling its managed job, and running it through `aidp-mcp` | Every mutation and job start requires current-conversation approval. |
+| [`aidp-agent-deploy`](aidp-agent-deploy/SKILL.md) | Deploying, redeploying, and smoke-testing an existing code-first LangGraph agent through `aidp-mcp` | It does not author agent code or fall back to scripts, SDK, CLI, or REST; every mutation, compute start, and invocation requires current-conversation approval. |
+
+The agent deployment skill requires an already available `aidp-mcp` server and
+an absolute local path for the upload step. It plans each mutation first,
+requires deployment after every code upload, and stops after one failed deploy
+or smoke test instead of retrying automatically.
 
 ## Install and update
 

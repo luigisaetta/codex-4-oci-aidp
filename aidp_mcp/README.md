@@ -70,19 +70,21 @@ file.
 
 `server.py` is the MCP adapter: it loads validated settings for each tool
 request and calls the Python domain API directly. `agents.py`, `agent_code.py`,
-`agent_invoke.py`, `notebooks.py`, `jobs.py`, `clusters.py`, and `volumes.py`
-are domain modules; each receives validated settings explicitly. `agents.py`
-performs read-only agent observation, `agent_code.py` performs guarded code
-upload and CODE-definition reconciliation, and `agent_invoke.py` performs
-confirmation-gated OCI-signed deployment invocation. `agent_lookup.py`
-contains their shared exact-name lookup, deployment listing, and response
-shaping helpers. `workspace_files.py` supplies shared workspace object reads,
-file uploads, and folder creation to agents and notebooks. `config.py`,
-`local_files.py`, `targets.py`, `lookups.py`, `validation.py`, and `safety.py`
-are shared modules, with `safety.py` centralizing explicit mutation
-confirmation. Dependencies flow from `server.py` to domain modules, then
-shared modules, and finally `aidp_common`; domain modules must not depend on
-one another.
+`agent_deploy.py`, `agent_invoke.py`, `operations_status.py`, `notebooks.py`,
+`jobs.py`, `clusters.py`, and `volumes.py` are domain modules; each receives
+validated settings explicitly. `agents.py` performs read-only agent
+observation, `agent_code.py` performs guarded code upload and CODE-definition
+reconciliation, `agent_deploy.py` plans and submits guarded deployments, and
+`agent_invoke.py` performs confirmation-gated OCI-signed deployment
+invocation. `operations_status.py` provides bounded, sanitized operation
+status observation. `agent_lookup.py` contains the agent modules' shared
+exact-name lookup, deployment listing, and response shaping helpers.
+`workspace_files.py` supplies shared workspace object reads, file uploads, and
+folder creation to agents and notebooks. `config.py`, `local_files.py`,
+`targets.py`, `lookups.py`, `validation.py`, and `safety.py` are shared
+modules, with `safety.py` centralizing explicit mutation confirmation.
+Dependencies flow from `server.py` to domain modules, then shared modules, and
+finally `aidp_common`; domain modules must not depend on one another.
 
 ## Tools
 
@@ -92,11 +94,13 @@ one another.
 | `list_notebooks` | Read-only | Lists bounded, non-recursive notebook metadata in an explicit `/Workspace` directory, with an optional name substring filter. |
 | `list_aidp_agents` | Read-only | Lists bounded metadata for agents in the configured workspace. |
 | `get_aidp_agent` | Read-only | Retrieves one exact-name agent and bounded deployment metadata. |
+| `list_aidp_async_operations` | Read-only | Lists bounded, newest-first sanitized async operations for `AGENT`, `AI_COMPUTE`, or `CLUSTER`. It supports a status and display-name filter, and includes bounded failure details without exposing OCIDs or creator identifiers. |
 | `list_aidp_agent_sessions` | Read-only | Lists bounded, newest-first sessions for one exact-name agent. |
 | `get_aidp_agent_session_messages` | Read-only | Retrieves bounded session messages for an exact-name agent; messages can contain application data. |
 | `get_aidp_agent_trace` | Read-only | Retrieves bounded, sanitized trace spans for an exact-name agent session. |
 | `upload_aidp_agent_code` | Mutation, plan by default | Safely compares or uploads an allowed-root local agent folder to an absolute `/Workspace/...` directory. Set `apply=true` to write; replacing changed files also requires `overwrite=true`. Secret-like files and symbolic links are refused, and remote-only files are reported but never deleted. |
 | `ensure_aidp_agent` | Mutation, plan by default | Plans or creates/minimally updates an exact-name CODE agent definition whose entry and optional dependency file already exist in the workspace. Set `apply=true` to write. It never attaches compute, deploys, redeploys, or changes guardrails, sessions, or cards. |
+| `deploy_aidp_agent` | Mutation, plan by default | Plans a deploy or redeploy of an exact CODE agent on an already ACTIVE AI Compute. Set `apply=true` only after approval; it submits one no-retry request and can wait for the PROD deployment. Redeploy recreates the deployment, may briefly make the endpoint unavailable, and is required after every code upload. Nothing is deleted. |
 | `invoke_aidp_agent` | Confirmation-gated | Sends one bounded message to the exact-name agent's sole ACTIVE deployment. Requires `confirm_invoke=true`; it creates a session and can consume compute or trigger agent-tool side effects. |
 | `find_notebook_jobs` | Read-only | Finds workflow jobs in the configured workspace that use one exact `/Workspace/...ipynb` notebook. |
 | `list_catalog_volumes` | Read-only | Lists visible schemas and volumes in one exact catalog. By default, only external Object Storage volumes are returned. |
@@ -126,10 +130,41 @@ It verifies those remote files before producing its plan. Applying the plan
 creates or updates only the three CODE-definition fields it reports.
 
 Neither tool deploys an agent or attaches AI Compute. A deployed agent's
-definition changes require a separate, authorized redeploy workflow before
-they take effect. The tools do not delete workspace files, folders, agents, or
-deployments. See [specification 012](../specs/012-agent-code-upload-and-draft-mcp.md)
-for acceptance criteria, live-verification prerequisites, and cleanup steps.
+definition changes require the separate, authorized deployment workflow below
+before they take effect. The tools do not delete workspace files, folders,
+agents, or deployments. See [specification 012](../specs/012-agent-code-upload-and-draft-mcp.md)
+for code-upload acceptance criteria, live-verification prerequisites, and
+cleanup steps.
+
+### Agent deployment workflow
+
+After the upload and definition workflow, call `get_cluster_status` for the
+selected AI Compute. It must be an ACTIVE AI Compute before deployment; if it
+is not active, explain the cost and obtain separate approval before using
+`set_cluster_state` to start it.
+
+Call `deploy_aidp_agent` with `apply=false` and review its exact agent,
+compute, action, and existing PROD deployment summary. It accepts only a CODE
+agent whose configured workspace files exist and either creates the first PROD
+deployment or redeploys one sole ACTIVE PROD deployment. Ambiguous, failed,
+creating, or inactive deployment states stop with an error rather than a
+guess. After explicit current-conversation approval, call it with `apply=true`.
+The request is never retried automatically; the default bounded wait verifies
+an ACTIVE PROD deployment, and a redeploy also verifies a newer creation time.
+
+Every code upload requires this deployment step, even if the agent definition
+did not otherwise change. A redeploy recreates the deployment; its endpoint is
+expected to remain stable but can reject requests while the operation runs.
+Use `list_aidp_async_operations(resource_type="AGENT")` to inspect deployment
+progress or the bounded sanitized error details after a failure. Then obtain
+approval for a deterministic smoke test with `invoke_aidp_agent` and report
+the endpoint, session ID, and trace summary. Stop after one failed deployment
+or smoke test. These tools never undeploy or delete resources.
+
+For the approval-gated end-to-end procedure and diagnosed service behavior,
+use the [`aidp-agent-deploy`](../skills/aidp-agent-deploy/SKILL.md) skill. See
+[specification 013](../specs/013-agent-deploy-and-skill.md) for the detailed
+acceptance criteria and live-verification status.
 
 ## Use with Codex
 

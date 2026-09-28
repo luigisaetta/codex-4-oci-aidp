@@ -468,3 +468,28 @@ verification completed in the `codex-4-oci-aidp` Conda environment:
 
 No live call was made; manual workflow verification remains pending explicit
 authorization.
+
+### Execution-plan step 5 — 2026-09-28
+
+Documented the async-operation observation and guarded code-agent deployment
+workflow in the MCP guide, including the exact plan, approval, bounded wait,
+failure-diagnosis, smoke-test, and stopping boundaries. Updated the project
+capability table and roadmap to distinguish offline implementation verification
+from pending live deploy/redeploy and invocation verification. Added the two
+operational skills and their safety boundaries to the skills guide, and
+recorded the user-visible additions in the changelog.
+
+Final MCP snapshot confirmation and offline verification completed in the
+`codex-4-oci-aidp` Conda environment:
+
+* `pytest aidp_mcp/tests/test_server.py::test_mcp_tool_contract_matches_snapshot -q`
+  — 1 passed; the checked snapshot exactly contains the 22 registered tools,
+  including `list_aidp_async_operations` and `deploy_aidp_agent`;
+* `pytest -q` — 293 passed;
+* `pylint aidp_common aidp_mcp tests` — 10.00/10;
+* `black --check aidp_common aidp_mcp tests` — 42 files unchanged;
+* `git diff --check` passed.
+
+No live call was made: the manual deploy/redeploy, endpoint-interruption, and
+invocation verification required by this specification remain pending explicit
+authorization.
