@@ -1,6 +1,6 @@
 ---
 name: aidp-agent-deploy
-description: Deploy, redeploy, and smoke-test a code-first LangGraph agent on OCI AI DP through aidp-mcp. Not for notebooks or writing agent code.
+description: Deploy, redeploy, and smoke-test a code-first LangGraph agent on OCI AI DP through aidp-mcp. Not for notebooks, container images, or OCI Generative AI Hosted Applications; use the oci-agent skills.
 ---
 
 # AI DP agent deploy
@@ -9,6 +9,21 @@ Use this workflow to deploy an existing code-first LangGraph agent through
 `aidp-mcp`. Do not use notebooks, scripts, the SDK, the OCI CLI, or REST as a
 fallback. If `aidp-mcp` is unavailable, stop and say so. Agent project paths
 supplied to MCP upload tools must be absolute.
+
+## Target platform check
+
+This skill deploys code-first agents to OCI AI Data Platform. Before any tool
+call, inspect the current repository:
+
+* An entry file whose class has a synchronous `setup()` and an asynchronous
+  `invoke()` indicates an AI DP code-first agent.
+* An `agent.yaml` with `schema_version` and a `Dockerfile` indicate an OCI
+  Generative AI Hosted Applications container image.
+
+If the signals indicate Hosted Applications, stop and tell the user to use the
+oci-agent-build, oci-agent-push, oci-agent-deploy, and
+oci-agent-verify-deployment skills. If the signals are mixed or absent, ask
+which platform they mean. Never switch platform silently.
 
 ## Workflow
 

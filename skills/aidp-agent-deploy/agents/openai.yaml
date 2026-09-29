@@ -1,6 +1,6 @@
 interface:
   display_name: "AI DP Agent Deploy"
-  short_description: "Deploy and smoke-test an AI DP agent"
+  short_description: "Deploy AI DP code agents, not Hosted Applications images; use oci-agent skills"
   default_prompt: "Use $aidp-agent-deploy to deploy an existing AI DP code agent and verify it."
 
 dependencies:

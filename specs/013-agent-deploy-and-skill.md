@@ -537,3 +537,25 @@ Offline verification completed in the `codex-4-oci-aidp` Conda environment:
 * `pylint aidp_common aidp_mcp tests` — 10.00/10;
 * `black --check aidp_common aidp_mcp tests` — 42 files unchanged;
 * `git diff --check` passed.
+
+### Skill target-platform routing fix — 2026-09-29
+
+Testing in the companion `codex-4-oci-enterprise-ai-deployment` repository
+showed that a request to release an OCI Generative AI Hosted Applications
+container-image agent could select `aidp-agent-deploy`. Its discovery
+description did not exclude Hosted Applications, and the workflow did not
+identify the repository's deployment platform before using AI DP tools.
+
+The skill description and UI short description now exclude container images
+and OCI Generative AI Hosted Applications and direct those requests to the
+oci-agent skills. Before any tool call, the skill now checks repository
+signals: a synchronous `setup()` plus asynchronous `invoke()` on an entry
+class identifies an AI DP code-first agent, while an `agent.yaml` with
+`schema_version` plus a `Dockerfile` identifies a Hosted Applications
+container image. Hosted Applications signals stop the workflow and route to
+oci-agent-build, oci-agent-push, oci-agent-deploy, and
+oci-agent-verify-deployment; mixed or absent signals require clarification and
+never silently switch platforms.
+
+The AI DP notebook deployment skill was reviewed and left unchanged because
+its notebook-only scope does not match container-image release requests.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* 2026-09-29: Route OCI Generative AI Hosted Applications container-image
+  releases away from `aidp-agent-deploy`; the AI DP code-agent deployment
+  skill now checks repository platform signals and directs Hosted Applications
+  work to the oci-agent skills.
+
 * 2026-09-28: Update the main README to the verified state: 22 MCP tools,
   the full agent loop (upload, create, deploy, redeploy, invoke, observe)
   verified live on AI DP, verified platform behaviors, and the roadmap.
